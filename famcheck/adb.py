@@ -26,9 +26,20 @@ def tools_dir() -> Path:
     return (Path(base) / "famcheck" if base else Path.home() / ".famcheck") / "platform-tools"
 
 
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+
+
 def adb_binary() -> str:
-    bundled = tools_dir() / ("adb.exe" if sys.platform == "win32" else "adb")
-    path = os.environ.get("FAMCHECK_ADB") or (str(bundled) if bundled.exists() else shutil.which("adb"))
+    """FAMCHECK_ADB, then platform-tools in/next to the project folder, then 'setup' location, then PATH."""
+    if os.environ.get("FAMCHECK_ADB"):
+        return os.environ["FAMCHECK_ADB"]
+    exe = "adb.exe" if sys.platform == "win32" else "adb"
+    for candidate in (PROJECT_DIR / "platform-tools" / exe,
+                      PROJECT_DIR.parent / "platform-tools" / exe,
+                      tools_dir() / exe):
+        if candidate.is_file():
+            return str(candidate)
+    path = shutil.which("adb")
     if not path:
         raise AdbError("adb nicht gefunden. Einmalig ausführen: python -m famcheck setup")
     return path

@@ -6,8 +6,7 @@ if not exist .venv (
     python -m venv .venv || (echo Python nicht gefunden. Bitte von python.org installieren. & pause & exit /b 1)
     .venv\Scripts\python -m pip install -q -r requirements.txt
 )
-if not exist "%LOCALAPPDATA%\famcheck\platform-tools\adb.exe" (
-    where adb >nul 2>nul || .venv\Scripts\python -m famcheck setup
-)
+rem adb suchen (Projektordner, daneben, Setup-Ordner, PATH), sonst herunterladen
+.venv\Scripts\python -c "from famcheck.adb import adb_binary; adb_binary()" >nul 2>nul || .venv\Scripts\python -m famcheck setup
 .venv\Scripts\python -m famcheck watch
 pause

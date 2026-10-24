@@ -53,8 +53,8 @@ Unter Windows bei „Ausführung von Skripts ist deaktiviert“ einmalig:
 | `python -m famcheck update-ioc` | Stalkerware-Liste aktualisieren |
 | `python -m famcheck setup` | adb herunterladen |
 
-`adb` wird in dieser Reihenfolge gesucht: Umgebungsvariable `FAMCHECK_ADB` → von `setup`
-installiert (`%LOCALAPPDATA%\famcheck\platform-tools`, sonst `~/.famcheck/platform-tools`) → `PATH`.
+`adb` wird in dieser Reihenfolge gesucht: Umgebungsvariable `FAMCHECK_ADB` → Ordner
+`platform-tools` im Projektordner oder direkt daneben → von `setup` installiert (`%LOCALAPPDATA%\famcheck\platform-tools`, sonst `~/.famcheck/platform-tools`) → `PATH`.
 
 **Tipp:** Regelmäßig scannen (z. B. monatlich). Das Dashboard zeigt neu installierte Apps,
 neue Berechtigungen und neue Bedienungshilfen seit dem letzten Mal. Genau so fällt

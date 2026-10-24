@@ -51,6 +51,22 @@ class SetupTest(unittest.TestCase):
                 adb.install_platform_tools(self._zip(tmp, [f"platform-tools/{exe}"]))
                 self.assertEqual(adb.adb_binary(), str(tools / exe))
 
+    def test_finds_platform_tools_in_and_next_to_project(self):
+        exe = "adb.exe" if sys.platform == "win32" else "adb"
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "famcheck"
+            sibling = Path(tmp) / "platform-tools" / exe
+            inside = project / "platform-tools" / exe
+            for f in (sibling, inside):
+                f.parent.mkdir(parents=True)
+                f.write_text("")
+            with mock.patch.object(adb, "PROJECT_DIR", project), \
+                 mock.patch.object(adb, "tools_dir", return_value=Path(tmp) / "none"), \
+                 mock.patch.dict(os.environ, {"FAMCHECK_ADB": ""}):
+                self.assertEqual(adb.adb_binary(), str(inside))
+                inside.unlink()
+                self.assertEqual(adb.adb_binary(), str(sibling))
+
     def test_rejects_zip_slip(self):
         with tempfile.TemporaryDirectory() as tmp:
             tools = Path(tmp) / "home" / "platform-tools"
