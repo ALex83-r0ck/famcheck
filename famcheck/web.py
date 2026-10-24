@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote
 
+from . import iocs
 from .report import ROLE_LABELS, compute_diff
 
 SEV_KEY = {"KRITISCH": "crit", "HOCH": "high", "MITTEL": "mid", "NIEDRIG": "low"}
@@ -61,6 +62,8 @@ h1{font-size:1.5rem;margin:0} h2{font-size:1.1rem;margin:0 0 10px}
 .meta{font-size:.82rem;color:var(--muted);display:grid;gap:2px}
 .chg{font-size:.85rem;border-top:1px dashed var(--line);padding-top:8px}
 .stale{color:var(--mid);font-weight:600}
+.banner{background:var(--mid-soft);color:var(--fg);border:1px solid var(--mid);border-radius:10px;padding:10px 14px}
+.banner b{color:var(--mid)}
 .finding{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;padding:10px 0;border-top:1px solid var(--line)}
 .finding:first-child{border-top:0}
 .finding .a{grid-column:2;font-size:.85rem;color:var(--muted)}
@@ -183,7 +186,12 @@ def _page(title: str, active: str, body: str, devices: dict) -> str:
             f"<meta http-equiv='refresh' content='60'><title>{escape(title)}</title>"
             f"<style>{CSS}</style></head><body><main>"
             f"<div class='top'><h1>FamCheck</h1><nav class='nav'>{nav}</nav></div>"
-            f"<div class='summary'>{summary}</div>{body}</main></body></html>")
+            f"{_banner()}<div class='summary'>{summary}</div>{body}</main></body></html>")
+
+
+def _banner() -> str:
+    warning = iocs.freshness_warning()
+    return f"<div class='banner' role='status'><b>Hinweis:</b> {escape(warning)}</div>" if warning else ""
 
 
 def render_overview(devices: dict[str, list[dict]], now: datetime | None = None) -> str:

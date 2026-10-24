@@ -22,6 +22,7 @@ MVT_INDEX_URL = "https://raw.githubusercontent.com/mvt-project/mvt-indicators/ma
 STIX_KEYS = {"app:id": "packages", "app:cert.sha1": "cert_sha1",
              "app:cert.sha256": "cert_sha256", "file:hashes.sha256": "sha256"}
 TABLES = ("packages", "cert_sha1", "cert_sha256", "sha256")
+MAX_AGE_DAYS = 30  # new spyware appears constantly; older lists miss it
 
 
 def ioc_path() -> Path:
@@ -43,6 +44,21 @@ def load() -> dict:
 def file_sha256() -> str:
     path = ioc_path()
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else "keine-ioc-liste"
+
+
+def freshness_warning(now: datetime | None = None) -> str | None:
+    """Warning text if the database is missing, undated or older than MAX_AGE_DAYS, else None."""
+    if not ioc_path().exists():
+        return "Keine Indikatorliste vorhanden. Bitte ausführen: python -m famcheck update-ioc"
+    generated = load()["meta"].get("generated")
+    try:
+        age = ((now or datetime.now(timezone.utc)) - datetime.fromisoformat(generated)).days
+    except (TypeError, ValueError):
+        return "Alter der Indikatorliste unbekannt. Bitte ausführen: python -m famcheck update-ioc"
+    if age > MAX_AGE_DAYS:
+        return (f"Die Indikatorliste ist {age} Tage alt, neuere Spyware fehlt darin. "
+                "Bitte ausführen: python -m famcheck update-ioc")
+    return None
 
 
 def _norm(table: str, value: str) -> str:
