@@ -95,7 +95,7 @@ famcheck/
   collect.py    liest Eigenschaften, Einstellungen, Apps, Rechte aus
   analyze.py    Heuristiken → Befunde
   report.py     HTML-Einzelbericht, Vergleich zweier Scans
-  web.py        lokales Dashboard (nur Python-Standardbibliothek)
+  web.py        lokales Dashboard: Status-Kacheln, Verlauf, Gerätedetails (nur Standardbibliothek)
   watch.py      Plug & Play: wartet auf Freigabe am Handy, scannt automatisch
   data/ioc.yaml Stalkerware-Indikatoren (Echap)
 tests/

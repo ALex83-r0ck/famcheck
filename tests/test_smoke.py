@@ -80,6 +80,10 @@ class SmokeTest(unittest.TestCase):
             self.assertNotIn("<script>x", overview)          # label is escaped
             self.assertIn("&lt;script&gt;x", overview)
 
+            history = urllib.request.urlopen(base + "/verlauf").read().decode()
+            self.assertEqual(history.count("class='mark'"), 3)  # 2 scans SAUBER01 + 1 INFIZIERT01
+            self.assertIn("+1 App", history)
+
             device = urllib.request.urlopen(base + "/device/SAUBER01").read().decode()
             self.assertIn("com.example.flashlight", device)  # change since previous scan
 
