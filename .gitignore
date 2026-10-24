@@ -1,0 +1,8 @@
+# Scan-Ergebnisse enthalten private Daten der Familie – niemals committen
+cases/
+*.zip
+
+__pycache__/
+*.pyc
+.venv/
+venv/
