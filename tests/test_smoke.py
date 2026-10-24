@@ -14,13 +14,19 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 FAKE_ADB = Path(__file__).resolve().parent / "fake_adb.py"
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+V1_SHA256 = "d1a0a4652f39618ab0d3f844b2f10b48d003d22a1b68cee1c62cf307533521d4"
+V2_CERT_SHA1 = "8604d19f51ab170a6781666b2c8ec51237b5a788"
 sys.path.insert(0, str(ROOT))
 
 from famcheck.web import make_handler  # noqa: E402
 
 
+TEST_ENV = {}
+
+
 def run_famcheck(*args, **env):
-    env = {**os.environ, "FAMCHECK_ADB": str(FAKE_ADB), **env}
+    env = {**os.environ, "FAMCHECK_ADB": str(FAKE_ADB), **TEST_ENV, **env}
     return subprocess.run([sys.executable, "-m", "famcheck", *args], cwd=ROOT, env=env,
                           capture_output=True, text=True, check=True).stdout
 
@@ -30,7 +36,14 @@ class SmokeTest(unittest.TestCase):
     def setUpClass(cls):
         FAKE_ADB.chmod(0o755)
         cls.tmp = tempfile.TemporaryDirectory()
-        cls.cases = Path(cls.tmp.name)
+        cls.cases = Path(cls.tmp.name) / "cases"
+        # Real indicator DB plus two test entries for the fixture APKs
+        db = json.loads((ROOT / "famcheck" / "data" / "iocs.json").read_text(encoding="utf-8"))
+        db["sha256"][V1_SHA256] = "TestBanker"
+        db["cert_sha1"][V2_CERT_SHA1] = "TestSpy (Stalkerware)"
+        test_db = Path(cls.tmp.name) / "iocs.json"
+        test_db.write_text(json.dumps(db), encoding="utf-8")
+        TEST_ENV["FAMCHECK_IOCS"] = str(test_db)
         run_famcheck("scan", "--all", "--cases", str(cls.cases))
         # Second scan of the clean phone, now with a new sideloaded app
         run_famcheck("scan", "--serial", "SAUBER01", "--label", "<script>x</script>",
@@ -46,7 +59,7 @@ class SmokeTest(unittest.TestCase):
 
     def test_detects_stalkerware(self):
         titles = [f["title"] for f in self.findings("INFIZIERT01")]
-        self.assertIn("Bekannte Stalkerware: TheTruthSpy", titles)
+        self.assertIn("Bekannte Spyware: TheTruthSpy (Stalkerware)", titles)
         self.assertTrue(any(t.startswith("Bedienungshilfe aktiv: com.systemservice") for t in titles))
         self.assertTrue(any(t.startswith("Versteckte App") for t in titles))
 
@@ -60,6 +73,26 @@ class SmokeTest(unittest.TestCase):
         self.assertEqual(by_title["Sonderrechte für App aus fremder Quelle: com.systemservice"], "MITTEL")
         self.assertEqual(by_title["Darf weitere Apps installieren: com.systemservice"], "MITTEL")
         self.assertEqual(by_title["2 Google-Konten auf dem Gerät"], "NIEDRIG")
+
+    def test_stufe2_checks(self):
+        by_title = {f["title"]: f["severity"] for f in self.findings("INFIZIERT01")}
+        self.assertEqual(by_title["Signatur bekannter Spyware: TestSpy (Stalkerware)"], "KRITISCH")  # renamed
+        self.assertEqual(by_title["Bekannte Schad-APK: TestBanker"], "KRITISCH")
+        self.assertEqual(by_title["Inoffizieller Messenger-Mod: YoWhatsApp"], "HOCH")
+        self.assertEqual(by_title["Aktives VPN einer App aus fremder Quelle: com.systemservice"], "HOCH")
+        self.assertEqual(by_title["Privates DNS: dns.spy-example.net"], "MITTEL")
+        self.assertEqual(by_title["Play Protect möglicherweise ausgeschaltet"], "MITTEL")
+        self.assertEqual(by_title["Per USB installierte Apps werden nicht geprüft"], "NIEDRIG")
+
+    def test_apks_are_fingerprinted_but_never_stored(self):
+        case = sorted(self.cases.glob("*_INFIZIERT01"))[0]
+        self.assertEqual(list(case.rglob("*.apk")), [])
+        manifest = (case / "manifest.csv").read_text(encoding="utf-8")
+        self.assertIn("pull /data/app/", manifest)
+        self.assertIn(V1_SHA256, manifest)
+        data = json.loads((case / "data.json").read_text())
+        self.assertEqual(data["apps"]["com.example.flashlight"]["apk"]["cert_sha1"], V2_CERT_SHA1)
+        self.assertNotIn("apk", data["apps"]["com.whatsapp"])  # store apps are not pulled
 
     def test_uploads_parsed(self):
         case = sorted(self.cases.glob("*_SAUBER01"))[0]
@@ -87,6 +120,8 @@ class SmokeTest(unittest.TestCase):
         case = sorted(self.cases.glob("*_INFIZIERT01"))[0]
         with open(case / "manifest.csv", encoding="utf-8") as f:
             for row in csv.DictReader(f):
+                if not row["datei"].startswith("raw/"):  # pulled APKs are hashed, not stored
+                    continue
                 actual = hashlib.sha256((case / row["datei"]).read_bytes()).hexdigest()
                 self.assertEqual(actual, row["sha256"])
 

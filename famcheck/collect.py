@@ -4,6 +4,7 @@ import re
 import time
 
 from .adb import RecordingAdb
+from .analyze import TRUSTED_STORES
 
 # App-ops that matter for malware; read per app via "appops get".
 WATCHED_APPOPS = ["SYSTEM_ALERT_WINDOW", "REQUEST_INSTALL_PACKAGES", "MANAGE_EXTERNAL_STORAGE"]
@@ -25,6 +26,10 @@ SETTINGS = [
     ("secure", "enabled_notification_listeners"),
     ("secure", "always_on_vpn_app"),
     ("secure", "sms_default_application"),
+    ("global", "private_dns_mode"),
+    ("global", "private_dns_specifier"),
+    ("global", "package_verifier_user_consent"),
+    ("global", "verifier_verify_adb_installs"),
 ]
 
 
@@ -173,7 +178,22 @@ def _parse_netstats(out: str, now: float) -> tuple[dict[int, dict], float | None
     return per_uid, days
 
 
-def collect(adb: RecordingAdb, log) -> dict:
+def _parse_vpn_owner_uids(out: str) -> list[int]:
+    """Owner uids of active VPN networks from 'dumpsys connectivity'."""
+    uids = set()
+    for line in out.splitlines():
+        if re.search(r"Transports: ?[A-Z_|]*VPN", line) or "ni{VPN" in line:
+            m = re.search(r"Owner ?Uid: ?(\d+)", line, re.I)
+            if m:
+                uids.add(int(m.group(1)))
+    return sorted(uids)
+
+
+def _apk_paths(out: str) -> list[str]:
+    return [line.split(":", 1)[1].strip() for line in out.splitlines() if line.startswith("package:")]
+
+
+def collect(adb: RecordingAdb, log, check_apks: bool = True) -> dict:
     data = {"props": {}, "settings": {}}
 
     log("Lese Geräteeigenschaften ...")
@@ -216,6 +236,11 @@ def collect(adb: RecordingAdb, log) -> dict:
     launcher = set(re.findall(r"^\s*([\w.]+)/", launcher_out, re.M))
     data["launcher_query_ok"] = bool(launcher)
 
+    uid_names: dict[int, list[str]] = {}
+    for pkg, meta in all_packages.items():
+        if meta["uid"] is not None:
+            uid_names.setdefault(meta["uid"], []).append(pkg)
+
     log(f"Analysiere {len(third_party)} installierte Apps ...")
     for pkg, meta in third_party.items():
         meta.update(_parse_dumpsys_package(adb.shell(f"dumpsys package {pkg}")))
@@ -223,12 +248,22 @@ def collect(adb: RecordingAdb, log) -> dict:
         meta["appops"] = _parse_appops(adb.shell(f"appops get {pkg}"))
     data["apps"] = third_party
 
+    if check_apks:
+        unknown_source = [p for p, m in third_party.items() if m["installer"] not in TRUSTED_STORES]
+        if unknown_source:
+            log(f"Prüfe {len(unknown_source)} App-Datei(en) aus fremder Quelle (Hash + Signatur) ...")
+        for pkg in unknown_source:
+            files = [adb.pull_fingerprints(path) for path in _apk_paths(adb.shell(f"pm path {pkg}"))]
+            base = next((f for f in files if f["path"].endswith("/base.apk")), files[0] if files else {})
+            third_party[pkg]["apk"] = {"files": files, "cert_sha1": base.get("cert_sha1"),
+                                       "cert_sha256": base.get("cert_sha256")}
+
+    log("Lese aktive VPN-Verbindungen ...")
+    vpn_uids = _parse_vpn_owner_uids(adb.shell("dumpsys connectivity"))
+    data["active_vpn"] = sorted({p for uid in vpn_uids for p in uid_names.get(uid, [f"uid {uid}"])})
+
     log("Lese Datenverbrauch (Uploads) ...")
     per_uid, days = _parse_netstats(adb.shell("dumpsys netstats detail", timeout=180), time.time())
-    uid_names: dict[int, list[str]] = {}
-    for pkg, meta in all_packages.items():
-        if meta["uid"] is not None:
-            uid_names.setdefault(meta["uid"], []).append(pkg)
     data["uploads"] = sorted(
         ({"uid": uid, "packages": sorted(uid_names.get(uid, [f"uid {uid}"])), **v}
          for uid, v in per_uid.items() if v["tx"] > 0),

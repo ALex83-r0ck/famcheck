@@ -1,10 +1,8 @@
 """Turns collected device data into findings. Heuristics, not proof: every finding needs a human look."""
 
 from datetime import date
-from pathlib import Path
 
-
-IOC_PATH = Path(__file__).parent / "data" / "ioc.yaml"
+from . import iocs
 
 TRUSTED_STORES = {
     "com.android.vending": "Google Play",
@@ -46,19 +44,31 @@ UPLOAD_ALERT_TOTAL = 200 * MB  # total upload by a non-store app
 def _mb(n: int) -> str:
     return f"{n / MB:,.0f} MB".replace(",", ".")
 
+
+# Unofficial WhatsApp mods, often bundled with malware (e.g. the Triada trojan in YoWhatsApp/FMWhatsApp).
+MOD_MESSENGERS = {
+    "com.gbwhatsapp": "GBWhatsApp",
+    "com.yowhatsapp": "YoWhatsApp",
+    "com.fmwhatsapp": "FMWhatsApp",
+}
+
+# Real messengers: installed outside a store they may be an official APK or a tampered copy.
+MESSENGERS = {
+    "com.whatsapp": "WhatsApp", "com.whatsapp.w4b": "WhatsApp Business",
+    "org.telegram.messenger": "Telegram", "org.thoughtcrime.securesms": "Signal",
+    "com.facebook.orca": "Messenger", "com.instagram.android": "Instagram",
+    "com.snapchat.android": "Snapchat",
+}
+
+# Well-known public Private-DNS providers (suffix match).
+KNOWN_DNS = ("dns.google", "one.one.one.one", "cloudflare-dns.com", "dns.quad9.net", "dns.adguard.com",
+             "dns.adguard-dns.com", "dns.nextdns.io", "dns.mullvad.net", "dns0.eu", "base.dns.mullvad.net")
+
 ORDER = {"KRITISCH": 0, "HOCH": 1, "MITTEL": 2, "NIEDRIG": 3, "INFO": 4}
 
-
-def load_ioc() -> dict[str, str]:
-    """package name -> spyware family name"""
-    if not IOC_PATH.exists():
-        return {}
-    try:
-        import yaml
-    except ModuleNotFoundError:
-        raise SystemExit("Paket 'pyyaml' fehlt. Installieren mit: pip install -r requirements.txt")
-    entries = yaml.safe_load(IOC_PATH.read_text(encoding="utf-8")) or []
-    return {pkg: e["name"] for e in entries for pkg in e.get("packages") or []}
+DONT_DELETE = ("NICHT sofort löschen: Wer sie installiert hat, merkt das evtl. "
+               "Erst Ergebnis sichern, Sicherheit der Person klären, dann Hilfe holen "
+               "(z. B. Hilfetelefon 116 016 bei häuslicher Gewalt).")
 
 
 def _finding(sev, title, detail, action, pkg=None):
@@ -69,17 +79,58 @@ def analyze(data: dict, today: date | None = None) -> list[dict]:
     today = today or date.today()
     findings = []
     props, settings, apps = data["props"], data["settings"], data["apps"]
-    ioc = load_ioc()
+    db = iocs.load()
 
-    # --- Known stalkerware ---------------------------------------------------
+    # --- Known spy-/stalkerware: package name ----------------------------------
     for pkg in data["all_packages"]:
-        if pkg in ioc:
+        if pkg in db["packages"]:
             findings.append(_finding(
-                "KRITISCH", f"Bekannte Stalkerware: {ioc[pkg]}",
-                f"Das Paket {pkg} steht auf der Stalkerware-Indikatorliste (Echap).",
-                "NICHT sofort löschen: Wer sie installiert hat, merkt das evtl. "
-                "Erst Ergebnis sichern, Sicherheit der Person klären, dann Hilfe holen "
-                "(z. B. Hilfetelefon 116 016 bei häuslicher Gewalt).", pkg))
+                "KRITISCH", f"Bekannte Spyware: {db['packages'][pkg]}",
+                f"Das Paket {pkg} steht auf einer Spyware-Indikatorliste (Echap/MVT).", DONT_DELETE, pkg))
+
+    # --- Known spy-/stalkerware: APK signature and hash (catches renamed copies) --
+    for pkg, app in apps.items():
+        apk = app.get("apk") or {}
+        family = (db["cert_sha1"].get(apk.get("cert_sha1") or "")
+                  or db["cert_sha256"].get(apk.get("cert_sha256") or ""))
+        if family and pkg not in db["packages"]:
+            findings.append(_finding(
+                "KRITISCH", f"Signatur bekannter Spyware: {family}",
+                f"Die App {pkg} ist mit dem Zertifikat von {family} signiert. "
+                "Sie wurde vermutlich umbenannt, um nicht aufzufallen.", DONT_DELETE, pkg))
+        for f in apk.get("files", []):
+            if f.get("sha256") in db["sha256"]:
+                findings.append(_finding(
+                    "KRITISCH", f"Bekannte Schad-APK: {db['sha256'][f['sha256']]}",
+                    f"Die Datei von {pkg} ist exakt eine bekannte Schad-APK (SHA-256 {f['sha256'][:16]}…).",
+                    DONT_DELETE, pkg))
+            mb = f.get("malwarebazaar") or {}
+            if mb.get("status") == "found":
+                findings.append(_finding(
+                    "KRITISCH", f"MalwareBazaar kennt diese APK: {mb['signature']}",
+                    f"Die Datei von {pkg} ist bei MalwareBazaar als Schadsoftware gemeldet"
+                    + (f" (Tags: {', '.join(mb['tags'])})." if mb.get("tags") else "."), DONT_DELETE, pkg))
+        errors = [f["error"] for f in apk.get("files", []) if f.get("error")]
+        if errors:
+            findings.append(_finding(
+                "INFO", f"App-Datei nicht vollständig prüfbar: {pkg}", "; ".join(errors),
+                "Bei Bedarf erneut scannen.", pkg))
+
+    # --- Modified messengers --------------------------------------------------
+    for pkg, name in MOD_MESSENGERS.items():
+        if pkg in data["all_packages"]:
+            findings.append(_finding(
+                "HOCH", f"Inoffizieller Messenger-Mod: {name}",
+                f"{name} ({pkg}) ist eine nachgebaute WhatsApp-Version. Solche Mods enthalten häufig "
+                "Schadcode und haben Zugriff auf alle Chats.",
+                "Chats sichern, Mod deinstallieren, offizielles WhatsApp aus dem Play Store nutzen.", pkg))
+    for pkg, name in MESSENGERS.items():
+        if pkg in apps and not TRUSTED_STORES.get(apps[pkg]["installer"] or ""):
+            findings.append(_finding(
+                "MITTEL", f"{name} nicht aus einem App-Store installiert",
+                f"Installer: {apps[pkg]['installer'] or 'unbekannt (APK/ADB)'}. Das kann eine offizielle APK sein "
+                "(z. B. Signal von signal.org) oder eine manipulierte Kopie.",
+                f"Wenn unklar: {name} neu aus dem Play Store installieren.", pkg))
 
     # --- Device integrity ----------------------------------------------------
     if props.get("ro.boot.verifiedbootstate") in ("orange", "yellow", "red"):
@@ -131,6 +182,36 @@ def analyze(data: dict, today: date | None = None) -> list[dict]:
         findings.append(_finding(
             "INFO", "Always-on-VPN aktiv", f"VPN-App: {vpn}",
             "Prüfen, ob diese VPN-App bewusst genutzt wird.", vpn))
+    dns_mode, dns_host = settings.get("private_dns_mode", ""), settings.get("private_dns_specifier", "")
+    if dns_mode == "hostname" and dns_host and dns_host != "null":
+        known = any(dns_host == k or dns_host.endswith("." + k) for k in KNOWN_DNS)
+        findings.append(_finding(
+            "INFO" if known else "MITTEL", f"Privates DNS: {dns_host}",
+            "Alle Adressabfragen des Handys laufen über diesen Server. "
+            + ("Bekannter öffentlicher Anbieter." if known else "Ein fremder DNS-Server sieht jede besuchte Seite "
+               "und kann Anfragen umleiten."),
+            "Einstellungen → Netzwerk → Privates DNS: prüfen, ob bewusst eingerichtet."))
+    if settings.get("package_verifier_user_consent") == "-1" or settings.get("package_verifier_enable") == "0":
+        findings.append(_finding(
+            "MITTEL", "Play Protect möglicherweise ausgeschaltet",
+            "Laut Systemeinstellung prüft Google installierte Apps nicht auf Schadsoftware.",
+            "Play Store → Profilbild → Play Protect → Einstellungen: „Apps mit Play Protect scannen“ einschalten."))
+    if settings.get("verifier_verify_adb_installs") == "0":
+        findings.append(_finding(
+            "NIEDRIG", "Per USB installierte Apps werden nicht geprüft",
+            "Apps, die per Kabel (ADB) installiert werden, umgehen die Prüfung durch Play Protect.",
+            "Entwickleroptionen → „Apps über USB überprüfen“ einschalten."))
+    for pkg in data.get("active_vpn", []):
+        store = TRUSTED_STORES.get((apps.get(pkg) or {}).get("installer") or "")
+        if pkg in apps and not store:
+            findings.append(_finding(
+                "HOCH", f"Aktives VPN einer App aus fremder Quelle: {pkg}",
+                "Der gesamte Datenverkehr des Handys läuft durch diese App. Sie kann alles mitlesen und umleiten.",
+                "Klären, was die App ist. Wenn unbekannt: VPN trennen und App entfernen lassen.", pkg))
+        else:
+            findings.append(_finding(
+                "INFO", f"VPN aktiv: {pkg}", "Der Datenverkehr läuft durch diese App.",
+                "Prüfen, ob die VPN-App bewusst genutzt wird.", pkg))
     if settings.get("install_non_market_apps") == "1":
         findings.append(_finding(
             "NIEDRIG", "Installation aus unbekannten Quellen erlaubt (global)",

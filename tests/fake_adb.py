@@ -4,7 +4,13 @@
 FAKE_ADB_NEWAPP=1 adds an extra sideloaded app and a second Google account to SAUBER01
 (simulates a change between scans).
 """
+import shutil
 import time
+from pathlib import Path
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+APK_FOR = {"com.systemservice": "v1-signed.apk", "com.example.flashlight": "v2-signed.apk",
+           "com.whatsapp": "v2-signed.apk"}
 import os
 import sys
 
@@ -16,6 +22,11 @@ if a[:1] == ["devices"]:
     print("List of devices attached")
     print("SAUBER01      device usb:1 product:x model:Pixel_7 device:x")
     print("INFIZIERT01   device usb:2 product:x model:SM_A525F device:x")
+    sys.exit(0)
+if a[2:3] == ["pull"]:
+    pkg = a[3].split("/")[-2].rsplit("-", 1)[0]
+    shutil.copy(FIXTURES / APK_FOR[pkg], a[4])
+    print(f"{a[3]}: 1 file pulled.")
     sys.exit(0)
 serial, cmd = a[1], a[3]
 bad = serial == "INFIZIERT01"
@@ -33,6 +44,10 @@ elif cmd.startswith("settings get"):
     vals = {"adb_enabled": "1", "adb_wifi_enabled": "1" if bad else "0",
             "http_proxy": "null", "always_on_vpn_app": "null",
             "enabled_accessibility_services": "com.systemservice/com.systemservice.AccService:com.google.android.marvin.talkback/.TalkBackService" if bad else "null",
+            "private_dns_mode": "hostname" if bad else "opportunistic",
+            "private_dns_specifier": "dns.spy-example.net" if bad else "null",
+            "package_verifier_user_consent": "-1" if bad else "1",
+            "verifier_verify_adb_installs": "0" if bad else "1",
             "sms_default_application": "com.systemservice" if bad else "com.google.android.apps.messaging",
             "enabled_notification_listeners": "com.systemservice/.NotifService:com.samsung.android.app.watchmanager/.Listener" if bad else "com.google.android.apps.wearables/.Listener"}
     print(vals.get(k, "null"))
@@ -44,6 +59,13 @@ elif cmd == "dumpsys device_policy":
     print("  Enabled Device Admins (User 0, provisioningState: 0):")
     if bad: print("    com.systemservice/com.systemservice.AdminReceiver:\n      uid=10250")
     print("    com.google.android.gms/.mdm.receivers.MdmDeviceAdminReceiver:\n      uid=10120")
+elif cmd.startswith("pm path "):
+    pkg = cmd.split()[-1]
+    print(f"package:/data/app/~~Xy12==/{pkg}-AbC==/base.apk")
+elif cmd == "dumpsys connectivity":
+    print("NetworkAgentInfo{network{100}  handle{1}  ni{WIFI CONNECTED extra: }  nc{[ Transports: WIFI Capabilities: INTERNET OwnerUid: 1000 ]}}")
+    if bad:
+        print("NetworkAgentInfo{network{105}  handle{2}  ni{VPN CONNECTED extra: }  nc{[ Transports: VPN Capabilities: INTERNET OwnerUid: 10250 AdminUids: [10250] ]}}")
 elif cmd == "dumpsys lock_settings":
     print("Current lock settings service state:\n  User State:\n    User 0\n      CredentialType: " + ("NONE" if bad else "PIN"))
 elif cmd == "dumpsys account":
@@ -82,7 +104,7 @@ elif cmd == "dumpsys netstats detail":
 elif cmd == "pm list packages -U":
     pk = [("android", 1000), ("com.google.android.gms", 10120), ("com.whatsapp", 10200),
           ("com.google.android.marvin.talkback", 10130)]
-    if bad: pk += [("com.systemservice", 10250), ("com.example.flashlight", 10251)]
+    if bad: pk += [("com.systemservice", 10250), ("com.example.flashlight", 10251), ("com.yowhatsapp", 10252)]
     if new_app and not bad: pk += [("com.example.flashlight", 10251)]
     print("\n".join(f"package:{p} uid:{u}" for p, u in pk))
 elif cmd == "pm list packages":
