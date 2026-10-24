@@ -3,7 +3,11 @@
 
 FAKE_ADB_NEWAPP=1 adds an extra sideloaded app and a second Google account to SAUBER01
 (simulates a change between scans).
+FAKE_ADB_STATE=<file.json> makes it stateful: setting writes are remembered and every writing
+command is logged under "writes", so tests can check exactly what was changed on the "phone".
+FAKE_ADB_LOCKED=1 reports a locked screen.
 """
+import json
 import shutil
 import time
 from pathlib import Path
@@ -30,13 +34,33 @@ if a[2:3] == ["pull"]:
     sys.exit(0)
 serial, cmd = a[1], a[3]
 bad = serial == "INFIZIERT01"
+STATE_FILE = os.environ.get("FAKE_ADB_STATE")
+state = json.loads(Path(STATE_FILE).read_text()) if STATE_FILE and Path(STATE_FILE).exists() else {}
+WRITES = ("settings put ", "settings delete ", "appops set ", "pm revoke ", "pm grant ", "pm disable-user ",
+          "pm enable ", "cmd deviceidle whitelist ", "cmd notification ", "pm uninstall")
+if any(cmd.startswith(w) for w in WRITES):
+    if not STATE_FILE:
+        sys.exit("fake_adb: write without FAKE_ADB_STATE")
+    state.setdefault("writes", []).append(f"{serial}: {cmd}")
+    parts = cmd.split()
+    if parts[:2] == ["settings", "put"]:
+        state.setdefault("settings", {})[parts[3]] = " ".join(parts[4:]).strip("'")
+    elif parts[:2] == ["settings", "delete"]:
+        state.setdefault("settings", {})[parts[3]] = "null"
+    elif parts[:2] == ["pm", "revoke"]:
+        state.setdefault("revoked", []).append(f"{parts[2]} {parts[3]}")
+    elif parts[:2] == ["pm", "grant"] and f"{parts[2]} {parts[3]}" in state.get("revoked", []):
+        state["revoked"].remove(f"{parts[2]} {parts[3]}")
+    Path(STATE_FILE).write_text(json.dumps(state))
+    sys.exit(0)
 props = {"ro.product.manufacturer": "samsung" if bad else "Google",
          "ro.product.model": "SM-A525F" if bad else "Pixel 7",
          "ro.build.version.release": "12" if bad else "16",
          "ro.build.version.security_patch": "2023-03-01" if bad else "2026-10-05",
          "ro.boot.verifiedbootstate": "green", "ro.serialno": serial}
 if cmd == "dumpsys window policy":
-    print("    KeyguardServiceDelegate\n      showing=false\n      showingAndNotOccluded=false")
+    locked = "true" if os.environ.get("FAKE_ADB_LOCKED") == "1" else "false"
+    print(f"    KeyguardServiceDelegate\n      showing={locked}\n      showingAndNotOccluded={locked}")
 elif cmd.startswith("getprop"):
     print(props.get(cmd.split()[1], ""))
 elif cmd.startswith("settings get"):
@@ -50,7 +74,7 @@ elif cmd.startswith("settings get"):
             "verifier_verify_adb_installs": "0" if bad else "1",
             "sms_default_application": "com.systemservice" if bad else "com.google.android.apps.messaging",
             "enabled_notification_listeners": "com.systemservice/.NotifService:com.samsung.android.app.watchmanager/.Listener" if bad else "com.google.android.apps.wearables/.Listener"}
-    print(vals.get(k, "null"))
+    print(state.get("settings", {}).get(k, vals.get(k, "null")))
 elif "command -v su" in cmd:
     pass
 elif cmd == "dumpsys device_policy":
@@ -131,5 +155,7 @@ elif cmd.startswith("dumpsys package "):
     for p in perms + ["android.permission.INTERNET", "android.permission.READ_SMS, restricted"]: print("      " + p)
     print("    install permissions:\n      android.permission.INTERNET: granted=true")
     print("    User 0: ceDataInode=1 installed=true\n      runtime permissions:")
-    for p in perms: print(f"        {p}: granted=true, flags=[ USER_SET ]")
+    for p in perms:
+        granted = "false" if f"{pkg} {p}" in state.get("revoked", []) else "true"
+        print(f"        {p}: granted={granted}, flags=[ USER_SET ]")
     print("        de.custom.permission.X: granted=false, flags=[]")

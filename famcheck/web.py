@@ -15,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote
 
-from . import decisions, iocs
+from . import decisions, fix, iocs
 from .report import ROLE_LABELS, compute_diff
 
 SEV_KEY = {"KRITISCH": "crit", "HOCH": "high", "MITTEL": "mid", "NIEDRIG": "low"}
@@ -78,6 +78,7 @@ background:var(--sunken);color:var(--fg);cursor:pointer}
 .triage button:focus-visible,.triage input:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
 .decision{grid-column:2;font-size:.82rem;margin-top:4px}
 .decision.warn{color:var(--high);font-weight:600}
+.decision code{font-family:var(--mono);font-size:.95em;background:var(--sunken);padding:1px 5px;border-radius:4px}
 details.triaged summary{cursor:pointer;color:var(--muted);font-size:.9rem;margin-top:8px}
 details.triaged .finding{opacity:.75}
 .finding{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;padding:10px 0;border-top:1px solid var(--line)}
@@ -361,7 +362,7 @@ def _decision_html(f: dict) -> str:
     return f"<div class='decision'>{label} (eingeordnet am {when}){note}</div>"
 
 
-def _finding_html(serial: str, f: dict, token: str) -> str:
+def _finding_html(serial: str, f: dict, token: str, all_findings: list[dict]) -> str:
     key = SEV_KEY.get(f["severity"], "ok")
     label = SEV_LABEL.get(SEV_KEY.get(f["severity"]), "Info")
     d = f.get("decision") or {}
@@ -378,7 +379,18 @@ def _finding_html(serial: str, f: dict, token: str) -> str:
             f"aria-label='Notiz' value='{escape(d.get('note', ''))}'>{buttons}</form></details>") if token else ""
     return (f"<div class='finding' id='{_anchor(f)}'><span class='chip s-{key}'>{label}</span>"
             f"<b>{escape(f['title'])}</b><span class='a'>{escape(f['detail'])}<br>→ {escape(f['action'])}</span>"
-            f"{_decision_html(f)}{form}</div>")
+            f"{_fix_hint(serial, f, all_findings)}{_decision_html(f)}{form}</div>")
+
+
+def _fix_hint(serial: str, f: dict, all_findings: list[dict]) -> str:
+    kind = fix.fix_kind(f, all_findings)
+    if kind == "auto":
+        return (f"<div class='decision'>Behebbar im Terminal, mit Rückfrage und umkehrbar: "
+                f"<code>python -m famcheck fix --serial {escape(serial)}</code></div>")
+    if kind == "blocked" and f.get("package"):
+        return ("<div class='decision'>Bewusst keine automatische Änderung: App mit kritischem Befund. "
+                "Erst die Sicherheit der betroffenen Person klären.</div>")
+    return ""
 
 
 def render_device(serial: str, scans: list[dict], devices: dict, now: datetime | None = None,
@@ -389,11 +401,11 @@ def render_device(serial: str, scans: list[dict], devices: dict, now: datetime |
     w = _worst(last["counting"])
     active = [f for f in last["triaged"] if f["decision_state"] != "suppressed"]
     hidden = [f for f in last["triaged"] if f["decision_state"] == "suppressed"]
-    findings = ("".join(_finding_html(serial, f, token) for f in active)
+    findings = ("".join(_finding_html(serial, f, token, last["findings"]) for f in active)
                 or "<p class='muted' style='margin:0'>Keine offenen Befunde.</p>")
     if hidden:
         findings += (f"<details class='triaged'><summary>Eingeordnet ({len(hidden)}), zählen nicht zur Ampel</summary>"
-                     + "".join(_finding_html(serial, f, token) for f in hidden) + "</details>")
+                     + "".join(_finding_html(serial, f, token, last["findings"]) for f in hidden) + "</details>")
     history = "".join(
         f"<tr><td class='num'>{escape(s['meta']['started'][:16].replace('T', ' '))} UTC</td>"
         f"<td>{_chips(s['findings'])}</td><td class='small'>{_change_line(s['diff'])}</td>"

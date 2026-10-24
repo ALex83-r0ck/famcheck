@@ -3,7 +3,9 @@
 Prüft die Android-Handys der Familie per ADB auf Stalkerware und gefährliche Einstellungen
 und zeigt den Verlauf in einem lokalen Dashboard.
 
-- **CLI** (`scan`): liest das Gerät aus. Nur lesend, es wird nichts auf dem Handy verändert.
+- **CLI** (`scan`): liest das Gerät aus. Nur lesend, es wird nichts auf dem Handy verändert
+  (ein Test prüft das).
+- **Beheben** (`fix`): getrennter Befehl, ändert nur mit Rückfrage und nur Umkehrbares.
 - **Dashboard** (`serve`): Übersicht aller Geräte, Befunde, Änderungen seit dem letzten Scan.
   Läuft nur auf `127.0.0.1`, ist also nicht aus dem Netzwerk erreichbar.
 - **Nachvollziehbar:** jede Rohausgabe des Geräts wird einzeln mit Zeitstempel und SHA-256 protokolliert.
@@ -52,6 +54,8 @@ Unter Windows bei „Ausführung von Skripts ist deaktiviert“ einmalig:
 | `python -m famcheck diff cases/<alt> cases/<neu>` | Zwei Scans im Terminal vergleichen |
 | `python -m famcheck update-ioc` | Indikatorlisten (Echap + MVT) aktualisieren, braucht `pyyaml` |
 | `python -m famcheck setup` | adb herunterladen |
+| `python -m famcheck fix [--dry-run]` | Befunde am Handy beheben, mit Rückfrage (siehe unten) |
+| `python -m famcheck fix --undo cases/<fix-ordner>` | einen fix-Durchlauf rückgängig machen |
 
 `adb` wird in dieser Reihenfolge gesucht: Umgebungsvariable `FAMCHECK_ADB` → Ordner
 `platform-tools` im Projektordner oder direkt daneben → von `setup` installiert (`%LOCALAPPDATA%\famcheck\platform-tools`, sonst `~/.famcheck/platform-tools`) → `PATH`.
@@ -108,6 +112,7 @@ famcheck/
   report.py     HTML-Einzelbericht, Vergleich zweier Scans
   web.py        lokales Dashboard: Status-Kacheln, Verlauf, Gerätedetails (nur Standardbibliothek)
   decisions.py  Einordnung von Befunden (Bekannt/Erledigt/Beobachten) mit Protokoll
+  fix.py        Befunde beheben: Plan aus dem Live-Zustand, Rückfrage, Protokoll, Undo
   watch.py      Plug & Play: wartet auf Freigabe am Handy, scannt automatisch
   apk.py        Signaturzertifikat aus APKs lesen (v1/v2/v3), ohne Zusatzprogramme
   iocs.py       Indikator-Datenbank bauen/laden (Echap + MVT)
@@ -119,6 +124,7 @@ tests/
   test_plugplay.py Watch-Modus, adb-Setup, Geräteerkennung
   test_online.py   MalwareBazaar gegen lokalen Fake-Server
   test_decisions.py Einordnung: Regeln, Dashboard-Formular, Schutz gegen gefälschte Anfragen
+  test_fix.py      Beheben: Scan schreibt nichts, Trockenlauf, Ablehnen, gesperrtes Handy, Undo
   fixtures/        zwei winzige signierte Test-APKs (v1 und v2)
 FamCheck.bat    Doppelklick-Start für Windows
 ```
@@ -140,6 +146,33 @@ Auf der Geräteseite im Dashboard lässt sich jeder Befund über „Einordnen �
 Einordnen ändert **nichts am Handy**. Gespeichert wird in `cases/decisions.json`, jede Änderung
 zusätzlich in `cases/decisions_log.jsonl` (wer hat wann was als in Ordnung erklärt).
 Die Scan-Historie bleibt unverändert, so wie gescannt.
+
+## Befunde beheben (`fix`)
+
+```powershell
+python -m famcheck fix --dry-run     # erst ansehen, was passieren würde
+python -m famcheck fix               # dann wirklich
+```
+
+Das Handy muss angesteckt und **entsperrt** sein. FamCheck liest den aktuellen Zustand, zeigt eine
+nummerierte Liste mit den genauen ADB-Befehlen und fragt **vor jeder Änderung** einzeln nach (`j`).
+
+| Automatisch (umkehrbar) | Nur als Anleitung |
+|---|---|
+| Kabelloses Debugging, Proxy, Privates DNS, Prüfung von USB-Installationen | Fremdverwaltung, Arbeitsprofil, Geräteadministrator |
+| Bedienungshilfe oder Benachrichtigungszugriff einer App abschalten | Displaysperre (die Person setzt ihre PIN selbst) |
+| Sonderrechte entziehen (Einblenden, Apps installieren, alle Dateien) | Standard-SMS-App, Messenger-Mods (Chats erst sichern) |
+| Kamera-/Mikrofon-/Standort-/SMS-Rechte entziehen, Akku-Ausnahme aufheben | Updates, Play Protect, unbekannte Konten |
+| App **deaktivieren** (bleibt installiert, Daten bleiben) | |
+| USB-Debugging aus (immer zuletzt, trennt die Verbindung, nur am Handy umkehrbar) | |
+
+**Nie:** deinstallieren oder Daten löschen. **Und nichts für Apps mit kritischem Befund** (bekannte
+Spyware): Wer sie installiert hat, merkt das Entfernen. FamCheck zeigt dann stattdessen einen
+Sicherheitshinweis.
+
+Jeder Durchlauf bekommt einen eigenen Ordner `cases/<zeit>_fix_<name>_<serial>/` mit Rohdaten,
+`manifest.csv` und `fixlog.json` (inklusive der Befehle zum Rückgängigmachen). Behobene Befunde werden
+im Dashboard als „Erledigt“ eingeordnet. Der nächste Scan zeigt, ob es wirklich geklappt hat.
 
 ## App-Dateien und MalwareBazaar
 
