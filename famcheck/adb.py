@@ -125,9 +125,10 @@ class RecordingAdb:
         self.manifest_path = case_dir / "manifest.csv"
         self._counter = 0
         with open(self.manifest_path, "w", newline="", encoding="utf-8") as f:
-            csv.writer(f).writerow(["nr", "zeit_utc", "befehl", "exit_code", "datei", "sha256"])
+            csv.writer(f).writerow(["nr", "zeit_utc", "befehl", "exit_code", "datei", "sha256", "hinweis"])
 
-    def shell(self, command: str, timeout: int = 120) -> str:
+    def shell(self, command: str, timeout: int = 120, redact=None) -> str:
+        """redact: optional function bytes -> bytes applied BEFORE storing and hashing (e.g. remove e-mails)."""
         self._counter += 1
         try:
             proc = subprocess.run(
@@ -138,6 +139,9 @@ class RecordingAdb:
         except subprocess.TimeoutExpired:
             output, rc = b"<TIMEOUT>", -1
 
+        note = ""
+        if redact:
+            output, note = redact(output), "geschwärzt"
         slug = re.sub(r"[^A-Za-z0-9]+", "_", command)[:60].strip("_")
         filename = f"{self._counter:03d}_{slug}.txt"
         (self.raw_dir / filename).write_bytes(output)
@@ -146,6 +150,43 @@ class RecordingAdb:
                 self._counter,
                 datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 command, rc, f"raw/{filename}",
-                hashlib.sha256(output).hexdigest(),
+                hashlib.sha256(output).hexdigest(), note,
             ])
         return output.decode("utf-8", errors="replace")
+
+    def pull_fingerprints(self, remote: str, max_bytes: int = 300 * 1024 * 1024) -> dict:
+        """Pulls one APK into a temp folder, fingerprints it (hash + signing cert) and deletes it again.
+
+        The APK itself is never kept: it may be malware, and antivirus software on the PC may react to it.
+        The manifest records the pull with the file's SHA-256.
+        """
+        from .apk import fingerprints
+
+        self._counter += 1
+        result: dict = {"path": remote}
+        rc, digest = -1, ""
+        with tempfile.TemporaryDirectory() as tmp:
+            local = Path(tmp) / "app.apk"
+            try:
+                proc = subprocess.run([adb_binary(), "-s", self.serial, "pull", remote, str(local)],
+                                      capture_output=True, timeout=600)
+                rc = proc.returncode
+                if rc != 0 or not local.exists():
+                    result["error"] = "Kopieren fehlgeschlagen: " + proc.stderr.decode("utf-8", "replace").strip()[:200]
+                elif local.stat().st_size > max_bytes:
+                    result["error"] = f"zu groß ({local.stat().st_size // 1048576} MB), übersprungen"
+                else:
+                    result["size"] = local.stat().st_size
+                    result.update(fingerprints(local))
+                    digest = result["sha256"]
+            except subprocess.TimeoutExpired:
+                result["error"] = "Zeitüberschreitung beim Kopieren"
+            except OSError as e:  # e.g. antivirus removed the file right after the pull
+                result["error"] = f"Datei nicht lesbar (Virenschutz?): {e}"
+        with open(self.manifest_path, "a", newline="", encoding="utf-8") as f:
+            csv.writer(f).writerow([
+                self._counter, datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                f"pull {remote}", rc, "(APK nicht gespeichert)", digest,
+                result.get("error", "nur Hash und Zertifikat ausgewertet"),
+            ])
+        return result

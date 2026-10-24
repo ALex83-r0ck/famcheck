@@ -54,11 +54,18 @@ ein Befund heißt nicht automatisch „Spyware“.</small></p>
 
 
 ROLE_LABELS = {"accessibility": "Bedienungshilfen", "notification_listeners": "Benachrichtigungszugriff",
-               "device_admins": "Geräteadministratoren"}
+               "device_admins": "Geräteadministratoren", "battery_exempt": "Akku-Ausnahmen"}
 
 
 def compute_diff(old: dict, new: dict) -> dict:
-    """Structured changes between two data.json contents of the same device."""
+    """Structured changes between two data.json contents of the same device.
+
+    Keys missing in the older scan (added in a later FamCheck version) are not reported as changes.
+    """
+    def total_accounts(d):
+        return sum((d.get("accounts") or {}).values())
+
+    owner_new = new.get("device_owner")
     return {
         "added": {p: new["apps"][p]["installer"] for p in sorted(set(new["apps"]) - set(old["apps"]))},
         "removed": sorted(set(old["apps"]) - set(new["apps"])),
@@ -68,8 +75,10 @@ def compute_diff(old: dict, new: dict) -> dict:
         },
         "new_roles": {
             key: items for key in ROLE_LABELS
-            if (items := sorted(set(new[key]) - set(old[key])))
+            if key in old and key in new and (items := sorted(set(new[key]) - set(old[key])))
         },
+        "accounts_added": (max(0, total_accounts(new) - total_accounts(old)) if "accounts" in old else 0),
+        "new_device_owner": owner_new if "device_owner" in old and owner_new != old.get("device_owner") else None,
     }
 
 
@@ -84,4 +93,8 @@ def diff_scans(old_dir: Path, new_dir: Path) -> str:
         lines.append(f"Neue Rechte für {pkg}: {', '.join(gained)}")
     for key, items in d["new_roles"].items():
         lines.append(f"Neu bei {ROLE_LABELS[key]}: {', '.join(items)}")
+    if d["accounts_added"]:
+        lines.append(f"Neue Konten auf dem Gerät: {d['accounts_added']}")
+    if d["new_device_owner"]:
+        lines.append(f"Neue Geräteverwaltung: {d['new_device_owner']}")
     return "\n".join(lines)
