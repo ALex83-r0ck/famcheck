@@ -107,6 +107,7 @@ famcheck/
   analyze.py    Heuristiken → Befunde
   report.py     HTML-Einzelbericht, Vergleich zweier Scans
   web.py        lokales Dashboard: Status-Kacheln, Verlauf, Gerätedetails (nur Standardbibliothek)
+  decisions.py  Einordnung von Befunden (Bekannt/Erledigt/Beobachten) mit Protokoll
   watch.py      Plug & Play: wartet auf Freigabe am Handy, scannt automatisch
   apk.py        Signaturzertifikat aus APKs lesen (v1/v2/v3), ohne Zusatzprogramme
   iocs.py       Indikator-Datenbank bauen/laden (Echap + MVT)
@@ -117,6 +118,7 @@ tests/
   test_smoke.py    End-to-End-Test: python -m unittest discover tests
   test_plugplay.py Watch-Modus, adb-Setup, Geräteerkennung
   test_online.py   MalwareBazaar gegen lokalen Fake-Server
+  test_decisions.py Einordnung: Regeln, Dashboard-Formular, Schutz gegen gefälschte Anfragen
   fixtures/        zwei winzige signierte Test-APKs (v1 und v2)
 FamCheck.bat    Doppelklick-Start für Windows
 ```
@@ -124,6 +126,20 @@ FamCheck.bat    Doppelklick-Start für Windows
 ## Geplant
 
 Siehe [ROADMAP.md](ROADMAP.md).
+
+## Befunde einordnen
+
+Auf der Geräteseite im Dashboard lässt sich jeder Befund über „Einordnen …“ markieren, optional mit Notiz:
+
+| Einordnung | Wirkung |
+|---|---|
+| **Bekannt, in Ordnung** | zählt nicht mehr zur Ampel, **bis sich der Befund verändert** (höhere Stufe oder neuer Inhalt, z. B. neue Rechte). Geänderte Zahlen wie MB-Mengen zählen nicht als Veränderung. |
+| **Erledigt** | zählt nicht mehr bis zum nächsten Scan. Ist der Befund dann noch da, erscheint er als „wieder offen“. |
+| **Beobachten** | bleibt in der Ampel, ist nur markiert. |
+
+Einordnen ändert **nichts am Handy**. Gespeichert wird in `cases/decisions.json`, jede Änderung
+zusätzlich in `cases/decisions_log.jsonl` (wer hat wann was als in Ordnung erklärt).
+Die Scan-Historie bleibt unverändert, so wie gescannt.
 
 ## App-Dateien und MalwareBazaar
 
