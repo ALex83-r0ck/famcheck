@@ -6,22 +6,61 @@ import os
 import re
 import shutil
 import subprocess
+import sys
+import tempfile
+import urllib.request
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+
+PLATFORM_TOOLS_URL = "https://dl.google.com/android/repository/platform-tools-latest-{os}.zip"
 
 
 class AdbError(RuntimeError):
     pass
 
 
+def tools_dir() -> Path:
+    """Where 'famcheck setup' puts the platform-tools."""
+    base = os.environ.get("LOCALAPPDATA") if sys.platform == "win32" else None
+    return (Path(base) / "famcheck" if base else Path.home() / ".famcheck") / "platform-tools"
+
+
 def adb_binary() -> str:
-    path = os.environ.get("FAMCHECK_ADB") or shutil.which("adb")
+    bundled = tools_dir() / ("adb.exe" if sys.platform == "win32" else "adb")
+    path = os.environ.get("FAMCHECK_ADB") or (str(bundled) if bundled.exists() else shutil.which("adb"))
     if not path:
-        raise AdbError(
-            "adb nicht gefunden. Installiere die Android Platform-Tools "
-            "und sorge dafür, dass 'adb' im PATH liegt (oder setze FAMCHECK_ADB)."
-        )
+        raise AdbError("adb nicht gefunden. Einmalig ausführen: python -m famcheck setup")
     return path
+
+
+def install_platform_tools(zip_source: str | None = None) -> Path:
+    """Downloads Google's platform-tools and unpacks them into tools_dir()."""
+    os_name = {"win32": "windows", "darwin": "darwin"}.get(sys.platform, "linux")
+    target = tools_dir().parent
+    target.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        zip_path = Path(tmp) / "platform-tools.zip"
+        if zip_source and Path(zip_source).exists():
+            shutil.copy(zip_source, zip_path)
+        else:
+            url = zip_source or PLATFORM_TOOLS_URL.format(os=os_name)
+            print(f"Lade {url} ...")
+            with urllib.request.urlopen(url, timeout=300) as resp:
+                zip_path.write_bytes(resp.read())
+        with zipfile.ZipFile(zip_path) as zf:
+            for member in zf.namelist():  # refuse entries that would escape the target folder
+                if not (target / member).resolve().is_relative_to(target.resolve()):
+                    raise AdbError(f"Unsicherer Pfad im Zip: {member}")
+            if tools_dir().exists():
+                shutil.rmtree(tools_dir())
+            zf.extractall(target)
+    adb = tools_dir() / ("adb.exe" if sys.platform == "win32" else "adb")
+    if not adb.exists():
+        raise AdbError("Download enthielt kein adb.")
+    if sys.platform != "win32":
+        adb.chmod(0o755)
+    return adb
 
 
 def list_devices() -> list[dict]:
@@ -30,13 +69,39 @@ def list_devices() -> list[dict]:
         [adb_binary(), "devices", "-l"], capture_output=True, text=True, timeout=30
     ).stdout
     devices = []
-    for line in out.splitlines()[1:]:
+    for line in out.splitlines():
         parts = line.split()
-        if len(parts) < 2:
+        # skip header and daemon messages like "* daemon not running; starting now"
+        if len(parts) < 2 or line.startswith(("*", "List of devices")):
             continue
         model = next((p.split(":", 1)[1] for p in parts if p.startswith("model:")), "")
         devices.append({"serial": parts[0], "state": parts[1], "model": model})
     return devices
+
+
+def is_locked(serial: str) -> bool | None:
+    """True if the lock screen is showing or the screen is off. None if it cannot be determined."""
+    def sh(cmd):
+        try:
+            return subprocess.run([adb_binary(), "-s", serial, "shell", cmd],
+                                  capture_output=True, text=True, timeout=20).stdout
+        except subprocess.TimeoutExpired:
+            return ""
+
+    power = sh("dumpsys power")
+    if re.search(r"mWakefulness=(Asleep|Dozing)", power):
+        return True
+    window = sh("dumpsys window policy") + sh("dumpsys window")
+    m = re.search(r"KeyguardServiceDelegate[\s\S]{0,400}?showing=(true|false)", window)
+    if m:
+        return m.group(1) == "true"
+    m = re.search(r"(?:mShowingLockscreen|mDreamingLockscreen|isStatusBarKeyguard|mKeyguardShowing)=(true|false)", window)
+    if m:
+        return m.group(1) == "true"
+    m = re.search(r"mScreenState=(ON_LOCKED|ON_UNLOCKED|OFF_\w+)", sh("dumpsys nfc"))
+    if m:
+        return m.group(1) != "ON_UNLOCKED"
+    return None
 
 
 class RecordingAdb:

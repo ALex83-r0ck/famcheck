@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import __version__
-from .adb import AdbError, RecordingAdb, list_devices
+from .adb import AdbError, RecordingAdb, install_platform_tools, list_devices, tools_dir
 from .analyze import IOC_PATH, ORDER, analyze
 from .collect import collect
 from .report import diff_scans, write_html
@@ -94,6 +94,26 @@ def cmd_diff(args):
     print(diff_scans(Path(args.old), Path(args.new)))
 
 
+def cmd_setup(args):
+    if not args.yes:
+        print("Lädt die Android Platform-Tools (adb) von Google herunter.\n"
+              "Mit dem Download akzeptierst du die Android SDK-Lizenzbedingungen:\n"
+              "https://developer.android.com/studio/terms")
+        if input("Fortfahren? [j/N] ").strip().lower() not in ("j", "ja", "y", "yes"):
+            sys.exit("Abgebrochen.")
+    adb = install_platform_tools(args.zip)
+    print(f"adb installiert: {adb}")
+    if not IOC_PATH.exists():
+        cmd_update_ioc(args)
+
+
+def cmd_watch(args):
+    from .watch import watch
+    if not IOC_PATH.exists():
+        print("! Keine Stalkerware-Liste vorhanden. Erst 'update-ioc' ausführen.")
+    watch(Path(args.cases), None if args.no_dashboard else args.port, scan_device)
+
+
 def cmd_serve(args):
     from .web import serve
     serve(Path(args.cases), args.port)
@@ -117,6 +137,17 @@ def main():
     p.add_argument("old")
     p.add_argument("new")
     p.set_defaults(func=cmd_diff)
+
+    p = sub.add_parser("setup", help=f"adb automatisch installieren (nach {tools_dir()})")
+    p.add_argument("--yes", action="store_true", help="Nicht nachfragen")
+    p.add_argument("--zip", help=argparse.SUPPRESS)  # local zip/URL, for tests
+    p.set_defaults(func=cmd_setup)
+
+    p = sub.add_parser("watch", help="Plug & Play: auf Handys warten und automatisch scannen")
+    p.add_argument("--cases", default="cases", help="Ordner für Scan-Ergebnisse")
+    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--no-dashboard", action="store_true", help="Kein Dashboard/Browser starten")
+    p.set_defaults(func=cmd_watch)
 
     p = sub.add_parser("serve", help="Monitoring-Dashboard auf localhost starten")
     p.add_argument("--cases", default="cases", help="Ordner mit Scan-Ergebnissen")

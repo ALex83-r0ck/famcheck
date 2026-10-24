@@ -10,53 +10,56 @@ und zeigt den Verlauf in einem lokalen Dashboard.
 
 > Hinweis: Die Familienmitglieder sollten wissen, dass ihr Handy geprüft wird.
 
-## Installation
+## Schnellstart Windows (Plug & Play)
+
+1. [Python](https://www.python.org/downloads/) installieren (Haken bei „Add python.exe to PATH“).
+2. **`FamCheck.bat` doppelklicken.** Beim ersten Start wird alles eingerichtet, inklusive `adb`
+   (dabei wird einmal die Zustimmung zur Android SDK-Lizenz abgefragt).
+3. Der Browser öffnet das Dashboard. Jetzt nacheinander die Handys anstecken:
+   - Handy entsperren (Fingerabdruck/PIN) und **„USB-Debugging zulassen“** tippen.
+   - **„Von diesem Computer immer zulassen“ NICHT anhaken.** Dann muss der Besitzer bei jedem
+     Anstecken neu zustimmen. Das ist die eigentliche Freigabe per Fingerabdruck/PIN.
+   - Der Scan startet von selbst. Ist das Handy gesperrt, wartet FamCheck, bis es entsperrt wird.
+4. Kabel abziehen, nächstes Handy. Danach am Handy **USB-Debugging wieder ausschalten.**
+
+Vorher einmalig je Handy: Einstellungen → Telefoninfo → 7× auf „Build-Nummer“ tippen →
+Entwickleroptionen → USB-Debugging an.
+
+**Handy wird nicht erkannt?** Unter Windows fehlt oft der USB-Treiber:
+Samsung → „Samsung Android USB Driver“, Pixel → „Google USB Driver“.
+Außerdem: Kabel muss Daten übertragen können (manche Kabel laden nur).
+
+## Installation von Hand (alle Systeme)
 
 ```bash
 git clone https://github.com/ALex83-r0ck/famcheck.git
 cd famcheck
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+python -m famcheck setup                              # lädt adb herunter (oder eigenes adb im PATH)
 ```
 
-Windows (PowerShell):
+Unter Windows bei „Ausführung von Skripts ist deaktiviert“ einmalig:
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
 
-```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1      # bei Fehler einmalig: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-pip install -r requirements.txt
-```
+## Befehle
 
-Die venv muss in jedem neuen Terminal wieder aktiviert werden (Prompt beginnt dann mit `(.venv)`).
-Das Dashboard (`serve`) läuft auch ohne `pyyaml`, für `scan` wird es gebraucht.
+| Befehl | Zweck |
+|---|---|
+| `python -m famcheck watch` | Plug & Play: Dashboard + automatischer Scan beim Anstecken |
+| `python -m famcheck scan [--label "Handy Papa"] [--all]` | Einmal-Scan der angeschlossenen Geräte |
+| `python -m famcheck serve` | Nur das Dashboard (http://127.0.0.1:8765) |
+| `python -m famcheck diff cases/<alt> cases/<neu>` | Zwei Scans im Terminal vergleichen |
+| `python -m famcheck update-ioc` | Stalkerware-Liste aktualisieren |
+| `python -m famcheck setup` | adb herunterladen |
 
-Außerdem nötig: die [Android Platform-Tools](https://developer.android.com/tools/releases/platform-tools),
-damit `adb` im PATH liegt (oder Pfad über die Umgebungsvariable `FAMCHECK_ADB` setzen).
+`adb` wird in dieser Reihenfolge gesucht: Umgebungsvariable `FAMCHECK_ADB` → von `setup`
+installiert (`%LOCALAPPDATA%\famcheck\platform-tools`, sonst `~/.famcheck/platform-tools`) → `PATH`.
 
-## Benutzung
-
-1. Handy: Entwickleroptionen → **USB-Debugging an**, per USB anstecken, „Zulassen“ bestätigen.
-2. Scannen:
-
-   ```bash
-   python -m famcheck update-ioc                    # Stalkerware-Liste aktualisieren
-   python -m famcheck scan --label "Handy Papa"     # ein Gerät
-   python -m famcheck scan --all                    # alle angeschlossenen Geräte
-   ```
-
-3. Dashboard öffnen:
-
-   ```bash
-   python -m famcheck serve                         # → http://127.0.0.1:8765
-   ```
-
-4. Handy: **USB-Debugging wieder ausschalten.**
-
-Zwei Scans im Terminal vergleichen: `python -m famcheck diff cases/<alt> cases/<neu>`
-
-**Tipp:** Regelmäßig scannen (z. B. monatlich). Das Dashboard zeigt dann neu installierte Apps,
+**Tipp:** Regelmäßig scannen (z. B. monatlich). Das Dashboard zeigt neu installierte Apps,
 neue Berechtigungen und neue Bedienungshilfen seit dem letzten Mal. Genau so fällt
-nachträglich installierte Stalkerware auf.
+nachträglich installierte Stalkerware auf. Ein Gerät behält den Namen aus seinem letzten
+Scan, nach einem `scan --label "Handy Papa"` erkennt `watch` es also wieder.
 
 ## Was wird geprüft
 
@@ -93,10 +96,13 @@ famcheck/
   analyze.py    Heuristiken → Befunde
   report.py     HTML-Einzelbericht, Vergleich zweier Scans
   web.py        lokales Dashboard (nur Python-Standardbibliothek)
+  watch.py      Plug & Play: wartet auf Freigabe am Handy, scannt automatisch
   data/ioc.yaml Stalkerware-Indikatoren (Echap)
 tests/
   fake_adb.py   simuliert ein sauberes und ein infiziertes Handy
-  test_smoke.py End-to-End-Test: python -m unittest discover tests
+  test_smoke.py    End-to-End-Test: python -m unittest discover tests
+  test_plugplay.py Watch-Modus, adb-Setup, Geräteerkennung
+FamCheck.bat    Doppelklick-Start für Windows
 ```
 
 ## Grenzen

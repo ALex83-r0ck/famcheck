@@ -9,6 +9,8 @@ import sys
 new_app = os.environ.get("FAKE_ADB_NEWAPP") == "1"
 a = sys.argv[1:]
 if a[:1] == ["devices"]:
+    print("* daemon not running; starting now at tcp:5037")
+    print("* daemon started successfully")
     print("List of devices attached")
     print("SAUBER01      device usb:1 product:x model:Pixel_7 device:x")
     print("INFIZIERT01   device usb:2 product:x model:SM_A525F device:x")
@@ -20,7 +22,9 @@ props = {"ro.product.manufacturer": "samsung" if bad else "Google",
          "ro.build.version.release": "12" if bad else "16",
          "ro.build.version.security_patch": "2023-03-01" if bad else "2026-10-05",
          "ro.boot.verifiedbootstate": "green", "ro.serialno": serial}
-if cmd.startswith("getprop"):
+if cmd == "dumpsys window policy":
+    print("    KeyguardServiceDelegate\n      showing=false\n      showingAndNotOccluded=false")
+elif cmd.startswith("getprop"):
     print(props.get(cmd.split()[1], ""))
 elif cmd.startswith("settings get"):
     k = cmd.split()[-1]

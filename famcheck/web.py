@@ -171,6 +171,14 @@ def make_handler(cases_root: Path, port: int):
     return Handler
 
 
+def start_background(cases_root: Path, port: int) -> ThreadingHTTPServer:
+    """Starts the dashboard in a daemon thread (used by 'watch')."""
+    import threading
+    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(cases_root, port))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
 def serve(cases_root: Path, port: int):
     server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(cases_root, port))
     print(f"FamCheck-Dashboard: http://127.0.0.1:{port}  (Strg+C zum Beenden)")
