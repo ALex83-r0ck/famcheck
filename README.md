@@ -72,6 +72,13 @@ Scan, nach einem `scan --label "Handy Papa"` erkennt `watch` es also wieder.
 | Apps außerhalb eines Stores installiert | Stalkerware kommt fast immer als APK |
 | Bootloader entsperrt, Root, Proxy, Always-on-VPN | Manipulation des Systems bzw. Datenverkehrs |
 | Alter des Sicherheitspatches, (kabelloses) Debugging | Angriffsfläche |
+| Hochgeladene Datenmenge pro App (gesamt / im Hintergrund) | heimliches Hochladen von Fotos und Daten |
+| Anzahl der Konten (nur Anzahl, Namen werden schon in den Rohdaten geschwärzt) | ein fremdes Google-Konto bekommt die Fotosicherung |
+| Fremde Geräteverwaltung (Device Owner), Arbeitsprofile | fast volle Kontrolle über das Gerät |
+| Keine Displaysperre | jeder kann in Minuten Stalkerware installieren |
+| Sonderrechte: über anderen Apps einblenden, Apps installieren, Zugriff auf alle Dateien | Banking-Trojaner, Nachladen weiterer Apps |
+| Vom Akkusparen ausgenommene Apps aus fremder Quelle | Spyware hält sich so dauerhaft am Laufen |
+| Fremde Standard-SMS-App | SMS und Bestätigungscodes abfangen |
 
 ## Ergebnisordner
 
@@ -105,6 +112,10 @@ tests/
 FamCheck.bat    Doppelklick-Start für Windows
 ```
 
+## Geplant
+
+Siehe [ROADMAP.md](ROADMAP.md).
+
 ## Grenzen
 
 - Das sind Heuristiken: „Kein Befund“ heißt nicht „garantiert sauber“. Staatstrojaner wie Pegasus
@@ -112,6 +123,8 @@ FamCheck.bat    Doppelklick-Start für Windows
   [AndroidQF](https://github.com/mvt-project/androidqf).
 - Stalkerware wird nur über den Paketnamen erkannt, nicht über das Signaturzertifikat.
   Umbenannte Varianten fallen meist trotzdem über die Heuristiken auf.
+- Upload-Mengen kommen aus der Android-Statistik und reichen meist nur einige Tage bis Wochen zurück.
+- Die Displaysperre wird erst ab Android 11 erkannt, auf älteren Geräten fehlt diese Prüfung.
 - Die Ausgaben von `dumpsys` unterscheiden sich je nach Hersteller und Android-Version.
   Bisher nur mit simulierten Geräten getestet.
 - **Bei einem echten Fund nicht sofort löschen.** Wer Stalkerware installiert hat, merkt das Entfernen.

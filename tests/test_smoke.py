@@ -50,6 +50,33 @@ class SmokeTest(unittest.TestCase):
         self.assertTrue(any(t.startswith("Bedienungshilfe aktiv: com.systemservice") for t in titles))
         self.assertTrue(any(t.startswith("Versteckte App") for t in titles))
 
+    def test_stufe1_checks(self):
+        by_title = {f["title"]: f["severity"] for f in self.findings("INFIZIERT01")}
+        self.assertEqual(by_title["Gerät wird fremdverwaltet: com.systemservice"], "HOCH")
+        self.assertEqual(by_title["Keine Displaysperre"], "HOCH")
+        self.assertEqual(by_title["Fremde Standard-SMS-App: com.systemservice"], "HOCH")
+        self.assertEqual(by_title["Hoher Upload durch App aus fremder Quelle: com.systemservice"], "HOCH")
+        self.assertEqual(by_title["Läuft dauerhaft im Hintergrund: com.systemservice"], "MITTEL")
+        self.assertEqual(by_title["Sonderrechte für App aus fremder Quelle: com.systemservice"], "MITTEL")
+        self.assertEqual(by_title["Darf weitere Apps installieren: com.systemservice"], "MITTEL")
+        self.assertEqual(by_title["2 Google-Konten auf dem Gerät"], "NIEDRIG")
+
+    def test_uploads_parsed(self):
+        case = sorted(self.cases.glob("*_SAUBER01"))[0]
+        data = json.loads((case / "data.json").read_text())
+        wa = next(u for u in data["uploads"] if "com.whatsapp" in u["packages"])
+        self.assertEqual(wa["tx"], 45 * 1024 * 1024)       # tagged subset not counted
+        self.assertEqual(wa["tx_bg"], 5 * 1024 * 1024)
+        self.assertAlmostEqual(data["uploads_days"], 10, delta=0.2)
+        self.assertEqual(data["accounts"], {"com.google": 1, "com.whatsapp": 1})  # history block ignored
+
+    def test_account_names_never_stored(self):
+        for case in self.cases.iterdir():
+            for f in (case / "raw").iterdir():
+                self.assertNotIn(b"@gmail.com", f.read_bytes(), f)
+                self.assertNotIn(b"+491701234567", f.read_bytes(), f)
+            self.assertNotIn("@gmail.com", (case / "data.json").read_text())
+
     def test_no_false_positives_on_clean_phone(self):
         first = sorted(self.cases.glob("*_SAUBER01"))[0]
         findings = json.loads((first / "findings.json").read_text())["findings"]
@@ -67,6 +94,7 @@ class SmokeTest(unittest.TestCase):
         old, new = sorted(self.cases.glob("*_SAUBER01"))
         out = run_famcheck("diff", str(old), str(new))
         self.assertIn("+ com.example.flashlight", out)
+        self.assertIn("Neue Konten auf dem Gerät: 1", out)
 
     def test_dashboard(self):
         server = ThreadingHTTPServer(("127.0.0.1", 0), None)

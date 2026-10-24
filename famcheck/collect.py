@@ -1,8 +1,12 @@
 """Collects security-relevant state from the device. Only reads, never changes anything."""
 
 import re
+import time
 
 from .adb import RecordingAdb
+
+# App-ops that matter for malware; read per app via "appops get".
+WATCHED_APPOPS = ["SYSTEM_ALERT_WINDOW", "REQUEST_INSTALL_PACKAGES", "MANAGE_EXTERNAL_STORAGE"]
 
 PROPS = [
     "ro.product.manufacturer", "ro.product.model", "ro.build.version.release",
@@ -20,6 +24,7 @@ SETTINGS = [
     ("secure", "enabled_accessibility_services"),
     ("secure", "enabled_notification_listeners"),
     ("secure", "always_on_vpn_app"),
+    ("secure", "sms_default_application"),
 ]
 
 
@@ -37,7 +42,8 @@ def _parse_package_list(out: str) -> dict[str, dict]:
         m = re.match(r"package:(\S+)(?:\s+installer=(\S+))?(?:\s+uid:(\d+))?", line.strip())
         if m:
             installer = m.group(2)
-            pkgs[m.group(1)] = {"installer": None if installer in (None, "null") else installer}
+            pkgs[m.group(1)] = {"installer": None if installer in (None, "null") else installer,
+                                "uid": int(m.group(3)) if m.group(3) else None}
     return pkgs
 
 
@@ -88,6 +94,85 @@ def _parse_device_admins(out: str) -> list[str]:
     return sorted(admins)
 
 
+def _parse_owners(out: str) -> tuple[str | None, list[str]]:
+    """Device owner package and profile owner packages (work profiles) from 'dumpsys device_policy'."""
+    device_owner, profile_owners = None, []
+    lines = out.splitlines()
+    for i, line in enumerate(lines):
+        if re.match(r"\s*(Device Owner|Profile Owner)", line):
+            for nxt in lines[i:i + 6]:
+                m = re.search(r"ComponentInfo\{([^/}]+)/", nxt) or re.search(r"package=([\w.]+)", nxt)
+                if m:
+                    if "Device Owner" in line:
+                        device_owner = m.group(1)
+                    else:
+                        profile_owners.append(m.group(1))
+                    break
+    return device_owner, sorted(set(profile_owners))
+
+
+def _redact_accounts(raw: bytes) -> bytes:
+    """Keeps account types, removes account names (e-mail addresses) before anything is stored."""
+    return re.sub(rb"name=[^,}\n]*", b"name=<entfernt>", raw)
+
+
+def _parse_accounts(out: str) -> dict[str, int]:
+    """'Account {name=..., type=com.google}' -> {'com.google': n}. Only the first block (current accounts)."""
+    counts: dict[str, int] = {}
+    block = out.split("\n\n")[0] if "Accounts:" in out else out
+    for account_type in re.findall(r"Account \{name=[^,}]*, type=([\w.]+)\}", block):
+        counts[account_type] = counts.get(account_type, 0) + 1
+    return counts
+
+
+def _parse_lock_credential(out: str) -> str | None:
+    """'CredentialType: PIN' from 'dumpsys lock_settings' (Android 11+). None if unknown."""
+    m = re.search(r"CredentialType:\s*(\w+)", out)
+    return m.group(1).upper() if m else None
+
+
+def _parse_battery_exempt(out: str) -> list[str]:
+    """User-added entries ('user,com.foo,10123') from 'dumpsys deviceidle whitelist'."""
+    return sorted({m.group(1) for m in re.finditer(r"^user,([\w.]+),", out, re.M)})
+
+
+def _parse_appops(out: str) -> list[str]:
+    allowed = set()
+    for line in out.splitlines():
+        m = re.match(r"\s*(?:Uid mode: )?([A-Z_]+): (allow|foreground)", line)
+        if m and m.group(1) in WATCHED_APPOPS:
+            allowed.add(m.group(1))
+    return sorted(allowed)
+
+
+def _parse_netstats(out: str, now: float) -> tuple[dict[int, dict], float | None]:
+    """Uploaded bytes per uid from 'dumpsys netstats detail'.
+
+    Returns ({uid: {'tx': total, 'tx_bg': background}}, covered_days). Only tag=0x0 lines count,
+    tagged lines are subsets of them. set=DEFAULT means the app was in the background.
+    """
+    per_uid: dict[int, dict] = {}
+    current = None
+    oldest = None
+    for line in out.splitlines():
+        if "ident=" in line or re.search(r"\buid=-?\d+\s+set=", line):
+            m = re.search(r"\buid=(-?\d+)\s+set=(\w+)\s+tag=(0x[0-9a-fA-F]+)", line)
+            current = (int(m.group(1)), m.group(2)) if m and int(m.group(3), 16) == 0 else None
+            continue
+        if current is None:
+            continue
+        m = re.search(r"\bst=(\d+)\b.*?\btb=(\d+)", line)
+        if m:
+            start, tx = int(m.group(1)), int(m.group(2))
+            oldest = start if oldest is None else min(oldest, start)
+            entry = per_uid.setdefault(current[0], {"tx": 0, "tx_bg": 0})
+            entry["tx"] += tx
+            if current[1] == "DEFAULT":
+                entry["tx_bg"] += tx
+    days = round((now - oldest) / 86400, 1) if oldest else None
+    return per_uid, days
+
+
 def collect(adb: RecordingAdb, log) -> dict:
     data = {"props": {}, "settings": {}}
 
@@ -105,11 +190,23 @@ def collect(adb: RecordingAdb, log) -> dict:
     log("Prüfe auf Root ...")
     data["su_present"] = bool(adb.shell("command -v su || which su").strip())
 
-    log("Lese Geräteadministratoren ...")
-    data["device_admins"] = _parse_device_admins(adb.shell("dumpsys device_policy"))
+    log("Lese Geräteverwaltung ...")
+    policy = adb.shell("dumpsys device_policy")
+    data["device_admins"] = _parse_device_admins(policy)
+    data["device_owner"], data["profile_owners"] = _parse_owners(policy)
+
+    log("Lese Displaysperre, Konten, Akku-Ausnahmen ...")
+    data["lock_credential"] = _parse_lock_credential(adb.shell("dumpsys lock_settings"))
+    data["accounts"] = _parse_accounts(adb.shell("dumpsys account", redact=_redact_accounts))
+    data["battery_exempt"] = _parse_battery_exempt(adb.shell("dumpsys deviceidle whitelist"))
+    sms = data["settings"].get("sms_default_application", "")
+    data["sms_default"] = sms if sms and sms != "null" else None
 
     log("Lese Paketlisten ...")
-    data["all_packages"] = sorted(_parse_package_list(adb.shell("pm list packages")))
+    # "-U" (uid) needs Android 8+; fall back to the plain list on older devices
+    all_packages = (_parse_package_list(adb.shell("pm list packages -U"))
+                    or _parse_package_list(adb.shell("pm list packages")))
+    data["all_packages"] = sorted(all_packages)
     third_party = _parse_package_list(adb.shell("pm list packages -3 -i -U"))
 
     launcher_out = adb.shell(
@@ -123,5 +220,18 @@ def collect(adb: RecordingAdb, log) -> dict:
     for pkg, meta in third_party.items():
         meta.update(_parse_dumpsys_package(adb.shell(f"dumpsys package {pkg}")))
         meta["has_launcher_icon"] = pkg in launcher if launcher else None
+        meta["appops"] = _parse_appops(adb.shell(f"appops get {pkg}"))
     data["apps"] = third_party
+
+    log("Lese Datenverbrauch (Uploads) ...")
+    per_uid, days = _parse_netstats(adb.shell("dumpsys netstats detail", timeout=180), time.time())
+    uid_names: dict[int, list[str]] = {}
+    for pkg, meta in all_packages.items():
+        if meta["uid"] is not None:
+            uid_names.setdefault(meta["uid"], []).append(pkg)
+    data["uploads"] = sorted(
+        ({"uid": uid, "packages": sorted(uid_names.get(uid, [f"uid {uid}"])), **v}
+         for uid, v in per_uid.items() if v["tx"] > 0),
+        key=lambda e: e["tx"], reverse=True)
+    data["uploads_days"] = days
     return data

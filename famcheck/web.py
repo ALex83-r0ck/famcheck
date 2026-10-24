@@ -139,10 +139,12 @@ def _chips(findings: list[dict]) -> str:
 
 
 def _change_count(diff: dict | None) -> tuple[int, int, int]:
+    """(new apps, new rights/roles/accounts/owner, removed apps)"""
     if not diff:
         return 0, 0, 0
-    roles = sum(map(len, diff["new_roles"].values()))
-    return len(diff["added"]), len(diff["new_permissions"]) + roles, len(diff["removed"])
+    other = (sum(map(len, diff["new_roles"].values())) + len(diff["new_permissions"])
+             + diff.get("accounts_added", 0) + bool(diff.get("new_device_owner")))
+    return len(diff["added"]), other, len(diff["removed"])
 
 
 def _change_line(diff: dict | None) -> str:
@@ -153,7 +155,7 @@ def _change_line(diff: dict | None) -> str:
     if added:
         parts.append(f"<b>{added} neue App{'s' if added > 1 else ''}</b>")
     if perms:
-        parts.append(f"<b>{perms} neue Rechte/Rollen</b>")
+        parts.append(f"<b>{perms} neue Rechte/Konten/Rollen</b>")
     if removed and not parts:
         parts.append(f"{removed} App{'s' if removed > 1 else ''} entfernt")
     if not parts:
@@ -237,7 +239,7 @@ def render_history(devices: dict[str, list[dict]], now: datetime | None = None) 
             w = _worst(s["findings"])
             added, perms, _ = _change_count(s["diff"])
             tip = " ".join(x for x in (f"+{added} App{'s' if added > 1 else ''}" if added else "",
-                                       f"+{perms} Rechte" if perms else "") if x)
+                                       f"+{perms} Rechte/Konten" if perms else "") if x)
             title = f"{s['meta']['started'][:10]}: {HEADLINE[w]}"
             marks.append(f"<a class='mark' style='left:{pos(_started(s))}%' href='/report/{escape(s['dir'].name)}' "
                          f"title='{escape(title)}' aria-label='{escape(title)}'><span class='dot d-{w}'></span>"
@@ -263,9 +265,35 @@ def _diff_html(diff: dict) -> str:
              for p, g in diff["new_permissions"].items()]
     rows += [f"<div class='change'><span class='op op-role'>!</span><span class='mono'>{escape(', '.join(v))}</span>"
              f"<span class='muted'>neu bei {ROLE_LABELS[k]}</span></div>" for k, v in diff["new_roles"].items()]
+    if diff.get("accounts_added"):
+        rows.append(f"<div class='change'><span class='op op-role'>!</span><b>{diff['accounts_added']} neue(s) Konto/Konten</b>"
+                    f"<span class='muted'>auf dem Gerät angemeldet</span></div>")
+    if diff.get("new_device_owner"):
+        rows.append(f"<div class='change'><span class='op op-role'>!</span><span class='mono'>{escape(diff['new_device_owner'])}</span>"
+                    f"<span class='muted'>verwaltet jetzt das Gerät</span></div>")
     rows += [f"<div class='change'><span class='op op-rm'>−</span><span class='mono'>{escape(p)}</span>"
              f"<span class='muted'>entfernt</span></div>" for p in diff["removed"]]
     return "".join(rows) or "<p class='muted' style='margin:0'>Keine Änderungen seit dem vorherigen Scan.</p>"
+
+
+def _uploads_html(data: dict, top: int = 8) -> str:
+    uploads = data.get("uploads")
+    if not uploads:
+        return ""
+    third_party = data["apps"]
+    days = data.get("uploads_days")
+    installed_chip = " <span class='chip s-low'>installiert</span>"
+    rows = "".join(
+        f"<tr><td class='mono'>{escape(', '.join(u['packages']))}"
+        f"{installed_chip if any(p in third_party for p in u['packages']) else ''}</td>"
+        f"<td class='num'>{u['tx'] / 1048576:,.1f} MB</td><td class='num'>{u['tx_bg'] / 1048576:,.1f} MB</td></tr>"
+        for u in uploads[:top])
+    period = f"letzte ~{days:.0f} Tage" if days else "erfasster Zeitraum"
+    return (f"<div class='panel'><h2>Größte Uploads ({period})</h2>"
+            f"<p class='muted small' style='margin:0 0 8px'>Wie viele Daten jede App ins Internet geschickt hat. "
+            f"„Hintergrund“ heißt: ohne dass die App offen war.</p>"
+            f"<div class='scroll'><table><tr><th>App</th><th>Gesamt</th><th>Davon Hintergrund</th></tr>"
+            f"{rows}</table></div></div>")
 
 
 def render_device(serial: str, scans: list[dict], devices: dict, now: datetime | None = None) -> str:
@@ -294,6 +322,7 @@ def render_device(serial: str, scans: list[dict], devices: dict, now: datetime |
             f"<div class='state s-{w}' style='margin-top:12px'><span class='big d-{w}'>{ICON[w]}</span>{HEADLINE[w]}</div></div>"
             f"<div class='panel'><h2>Seit letztem Scan</h2>{diff}</div>"
             f"<div class='panel'><h2>Befunde</h2>{findings}</div>"
+            f"{_uploads_html(last['data'])}"
             f"<div class='panel'><h2>Alle Scans</h2><div class='scroll'><table><tr><th>Zeit</th><th>Befunde</th>"
             f"<th>Änderungen</th><th></th></tr>{history}</table></div></div>")
     return _page(f"FamCheck – {last['meta']['label']}", "", body, devices)

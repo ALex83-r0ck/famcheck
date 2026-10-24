@@ -32,6 +32,20 @@ SENSITIVE = {
     "android.permission.PROCESS_OUTGOING_CALLS": "Ausgehende Anrufe",
 }
 
+APPOP_LABELS = {
+    "SYSTEM_ALERT_WINDOW": "über anderen Apps einblenden",
+    "REQUEST_INSTALL_PACKAGES": "weitere Apps installieren",
+    "MANAGE_EXTERNAL_STORAGE": "Zugriff auf alle Dateien inkl. Fotos",
+}
+
+MB = 1024 * 1024
+UPLOAD_ALERT_BG = 50 * MB      # background upload by a non-store app
+UPLOAD_ALERT_TOTAL = 200 * MB  # total upload by a non-store app
+
+
+def _mb(n: int) -> str:
+    return f"{n / MB:,.0f} MB".replace(",", ".")
+
 ORDER = {"KRITISCH": 0, "HOCH": 1, "MITTEL": 2, "NIEDRIG": 3, "INFO": 4}
 
 
@@ -122,6 +136,36 @@ def analyze(data: dict, today: date | None = None) -> list[dict]:
             "NIEDRIG", "Installation aus unbekannten Quellen erlaubt (global)",
             "Ältere Android-Einstellung.", "Ausschalten, wenn nicht benötigt."))
 
+    # --- Device control, lock, accounts --------------------------------------
+    owner = data.get("device_owner")
+    if owner:
+        findings.append(_finding(
+            "HOCH", f"Gerät wird fremdverwaltet: {owner}",
+            "Ein Device Owner (Firmen-/MDM-Verwaltung) hat fast volle Kontrolle: Apps installieren, "
+            "Einstellungen sperren, Daten auslesen.",
+            "Ist das ein Firmenhandy? Wenn nicht: dringend klären, wer das eingerichtet hat.", owner))
+    for po in data.get("profile_owners", []):
+        findings.append(_finding(
+            "MITTEL", f"Arbeitsprofil vorhanden: {po}",
+            "Ein Arbeitsprofil wird von einer fremden Stelle verwaltet.",
+            "Normal bei Firmen-Apps. Sonst prüfen, wer es eingerichtet hat.", po))
+
+    if data.get("lock_credential") in ("NONE", "SWIPE"):
+        findings.append(_finding(
+            "HOCH", "Keine Displaysperre",
+            "Ohne PIN/Muster/Passwort kann jeder mit dem Handy in der Hand in Minuten Stalkerware installieren.",
+            "Einstellungen → Sicherheit → Displaysperre: PIN oder Passwort einrichten."))
+
+    accounts = data.get("accounts") or {}
+    google = accounts.get("com.google", 0)
+    if google > 1:
+        findings.append(_finding(
+            "NIEDRIG", f"{google} Google-Konten auf dem Gerät",
+            "Jedes Google-Konto kann eigene Fotosicherung und Synchronisierung haben. "
+            "Ein fremdes Konto bekäme so alle Fotos.",
+            "Mit der Person durchgehen: Einstellungen → Konten. Sind alle bekannt? "
+            "Bei Google Fotos prüfen, in welches Konto gesichert wird."))
+
     # --- Powerful roles held by third-party apps ------------------------------
     for pkg in data["accessibility"]:
         if pkg in apps:
@@ -144,9 +188,23 @@ def analyze(data: dict, today: date | None = None) -> list[dict]:
                 "Geräteadmins lassen sich nicht einfach deinstallieren.",
                 "Prüfen, ob gewollt (Firmen-MDM, „Mein Gerät finden“ ist normal).", pkg))
 
+    sms = data.get("sms_default")
+    if sms and sms in apps:
+        store = TRUSTED_STORES.get(apps[sms]["installer"] or "")
+        findings.append(_finding(
+            "NIEDRIG" if store else "HOCH", f"Fremde Standard-SMS-App: {sms}",
+            "Die Standard-SMS-App bekommt alle SMS, auch Bestätigungscodes fürs Online-Banking.",
+            "Bewusst gewählt (z. B. Signal)? Sonst Standard-SMS-App zurückstellen.", sms))
+
+    uploads_by_pkg = {p: u for u in data.get("uploads", []) for p in u["packages"]}
+    days = data.get("uploads_days")
+    period = f"in den letzten ~{days:.0f} Tagen" if days else "im erfassten Zeitraum"
+
     # --- Individual apps -----------------------------------------------------
     for pkg, app in apps.items():
         sensitive = [SENSITIVE[p] for p in app["granted"] if p in SENSITIVE]
+        if "MANAGE_EXTERNAL_STORAGE" in app.get("appops", []):
+            sensitive.append("Alle Dateien inkl. Fotos")
         store = TRUSTED_STORES.get(app["installer"] or "")
         hidden = app.get("has_launcher_icon") is False
 
@@ -167,6 +225,32 @@ def analyze(data: dict, today: date | None = None) -> list[dict]:
                 "INFO", f"App außerhalb eines Stores installiert: {pkg}",
                 f"Installer: {app['installer'] or 'unbekannt (APK/ADB)'}.",
                 "Kurz prüfen, ob bekannt.", pkg))
+
+        ops = app.get("appops", [])
+        if "REQUEST_INSTALL_PACKAGES" in ops:
+            findings.append(_finding(
+                "NIEDRIG" if store else "MITTEL", f"Darf weitere Apps installieren: {pkg}",
+                "Über diese App lassen sich APKs an Google Play vorbei installieren.",
+                "Einstellungen → Apps → Spezieller App-Zugriff → Unbekannte Apps installieren: ausschalten.", pkg))
+        if not store and ("SYSTEM_ALERT_WINDOW" in ops or "MANAGE_EXTERNAL_STORAGE" in ops):
+            labels = [APPOP_LABELS[o] for o in ("SYSTEM_ALERT_WINDOW", "MANAGE_EXTERNAL_STORAGE") if o in ops]
+            findings.append(_finding(
+                "MITTEL", f"Sonderrechte für App aus fremder Quelle: {pkg}",
+                f"Darf: {', '.join(labels)}. Einblenden über anderen Apps nutzen Banking-Trojaner "
+                "für gefälschte Login-Masken.",
+                "Prüfen, ob die App das wirklich braucht, sonst Recht entziehen.", pkg))
+        if not store and pkg in data.get("battery_exempt", []):
+            findings.append(_finding(
+                "MITTEL", f"Läuft dauerhaft im Hintergrund: {pkg}",
+                "Vom Akkusparen ausgenommen, Android beendet sie nie. Spyware fordert das gezielt an.",
+                "Prüfen, ob gewollt. Sonst Einstellungen → Akku → Optimierung wieder einschalten.", pkg))
+
+        up = uploads_by_pkg.get(pkg)
+        if up and not store and (up["tx_bg"] >= UPLOAD_ALERT_BG or up["tx"] >= UPLOAD_ALERT_TOTAL):
+            findings.append(_finding(
+                "HOCH", f"Hoher Upload durch App aus fremder Quelle: {pkg}",
+                f"Hat {period} {_mb(up['tx'])} hochgeladen, davon {_mb(up['tx_bg'])} im Hintergrund.",
+                "Genau so sieht heimliches Hochladen von Fotos aus. Klären, was die App ist.", pkg))
 
     findings.sort(key=lambda f: (ORDER[f["severity"]], f["title"]))
     return findings

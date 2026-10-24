@@ -125,9 +125,10 @@ class RecordingAdb:
         self.manifest_path = case_dir / "manifest.csv"
         self._counter = 0
         with open(self.manifest_path, "w", newline="", encoding="utf-8") as f:
-            csv.writer(f).writerow(["nr", "zeit_utc", "befehl", "exit_code", "datei", "sha256"])
+            csv.writer(f).writerow(["nr", "zeit_utc", "befehl", "exit_code", "datei", "sha256", "hinweis"])
 
-    def shell(self, command: str, timeout: int = 120) -> str:
+    def shell(self, command: str, timeout: int = 120, redact=None) -> str:
+        """redact: optional function bytes -> bytes applied BEFORE storing and hashing (e.g. remove e-mails)."""
         self._counter += 1
         try:
             proc = subprocess.run(
@@ -138,6 +139,9 @@ class RecordingAdb:
         except subprocess.TimeoutExpired:
             output, rc = b"<TIMEOUT>", -1
 
+        note = ""
+        if redact:
+            output, note = redact(output), "geschwärzt"
         slug = re.sub(r"[^A-Za-z0-9]+", "_", command)[:60].strip("_")
         filename = f"{self._counter:03d}_{slug}.txt"
         (self.raw_dir / filename).write_bytes(output)
@@ -146,6 +150,6 @@ class RecordingAdb:
                 self._counter,
                 datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 command, rc, f"raw/{filename}",
-                hashlib.sha256(output).hexdigest(),
+                hashlib.sha256(output).hexdigest(), note,
             ])
         return output.decode("utf-8", errors="replace")
