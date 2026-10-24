@@ -15,9 +15,20 @@ und zeigt den Verlauf in einem lokalen Dashboard.
 ```bash
 git clone https://github.com/ALex83-r0ck/famcheck.git
 cd famcheck
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
+
+Windows (PowerShell):
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1      # bei Fehler einmalig: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+pip install -r requirements.txt
+```
+
+Die venv muss in jedem neuen Terminal wieder aktiviert werden (Prompt beginnt dann mit `(.venv)`).
+Das Dashboard (`serve`) läuft auch ohne `pyyaml`, für `scan` wird es gebraucht.
 
 Außerdem nötig: die [Android Platform-Tools](https://developer.android.com/tools/releases/platform-tools),
 damit `adb` im PATH liegt (oder Pfad über die Umgebungsvariable `FAMCHECK_ADB` setzen).

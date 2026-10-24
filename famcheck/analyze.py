@@ -3,7 +3,6 @@
 from datetime import date
 from pathlib import Path
 
-import yaml
 
 IOC_PATH = Path(__file__).parent / "data" / "ioc.yaml"
 
@@ -40,6 +39,10 @@ def load_ioc() -> dict[str, str]:
     """package name -> spyware family name"""
     if not IOC_PATH.exists():
         return {}
+    try:
+        import yaml
+    except ModuleNotFoundError:
+        raise SystemExit("Paket 'pyyaml' fehlt. Installieren mit: pip install -r requirements.txt")
     entries = yaml.safe_load(IOC_PATH.read_text(encoding="utf-8")) or []
     return {pkg: e["name"] for e in entries for pkg in e.get("packages") or []}
 
