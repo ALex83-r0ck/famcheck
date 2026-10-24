@@ -10,11 +10,11 @@
 - Stufe 2: Indikatoren von Echap + MVT (Paketnamen, Signaturen, APK-Hashes), Prüfung der
   App-Dateien aus fremder Quelle, optional MalwareBazaar, Messenger-Mods, VPN, Privates DNS,
   Play Protect
+- Hinweis in Dashboard und CLI, wenn die Indikatorliste fehlt oder älter als 30 Tage ist
 
 ## Als Nächstes
 
 - [ ] Erster Abgleich mit echten Geräten (Samsung, Xiaomi, Pixel): dumpsys-Formate prüfen
-- [ ] Dashboard: Hinweis, wenn die Indikatorliste älter als 30 Tage ist
 
 ## feat: Begleit-App auf dem Handy
 

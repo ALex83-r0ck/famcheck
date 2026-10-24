@@ -62,8 +62,9 @@ def scan_device(serial: str, label: str, cases_root: Path, check_apks: bool = Tr
 
 
 def _check_prerequisites(args):
-    if not iocs.ioc_path().exists():
-        print("! Keine Indikatorliste vorhanden. Erst 'update-ioc' ausführen.")
+    warning = iocs.freshness_warning()
+    if warning:
+        print(f"! {warning}")
     if args.malwarebazaar and not online.api_key():
         sys.exit("Für --malwarebazaar wird ein kostenloser Schlüssel von https://auth.abuse.ch/ gebraucht.\n"
                  "Setzen mit:  $env:FAMCHECK_ABUSECH_KEY = \"<schlüssel>\"   (PowerShell)")
