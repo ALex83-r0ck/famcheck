@@ -4,52 +4,55 @@ import json
 from html import escape
 from pathlib import Path
 
-COLORS = {"KRITISCH": "#b00020", "HOCH": "#d9480f", "MITTEL": "#e0a800",
-          "NIEDRIG": "#4a7bd0", "INFO": "#888"}
+from .style import CSS, HEADLINE, ICON, SEV_KEY, SEV_LABEL, chips, uploads_html, worst
+
+
+def render_html(meta: dict, data: dict, findings: list[dict], back: str | None = None) -> str:
+    """The scan report: everything this one scan found, without any later triage."""
+    p = data["props"]
+    w = worst(findings)
+    rows = "".join(
+        f"<div class='finding'><span class='chip s-{SEV_KEY.get(f['severity'], 'ok')}'>"
+        f"{SEV_LABEL.get(SEV_KEY.get(f['severity']), 'Info')}</span>"
+        f"<b>{escape(f['title'])}</b><span class='a'>{escape(f['detail'])}<br>→ {escape(f['action'])}</span></div>"
+        for f in findings) or "<p class='muted' style='margin:0'>Keine Auffälligkeiten gefunden.</p>"
+
+    def icon(a):
+        return {True: "ja", False: "nein"}.get(a.get("has_launcher_icon"), "?")
+
+    app_rows = "".join(
+        f"<tr><td class='mono'>{escape(pkg)}</td><td class='mono'>{escape(a['installer'] or '–')}</td>"
+        f"<td>{icon(a)}</td><td class='num'>{escape(a.get('first_install') or '')}</td>"
+        f"<td class='num'>{len(a['granted'])}</td></tr>"
+        for pkg, a in sorted(data["apps"].items()))
+    nav = f"<p style='margin:0 0 8px'><a href='{escape(back)}'>← Zum Gerät im Dashboard</a></p>" if back else ""
+    model = f"{p.get('ro.product.manufacturer', '')} {p.get('ro.product.model', '')}".strip()
+    return f"""<!doctype html><html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FamCheck-Bericht – {escape(meta['label'])}</title><style>{CSS}</style></head><body><main>
+<div class="panel">{nav}
+<h2 style="font-size:1.3rem;margin:0">Scan-Bericht: {escape(meta['label'])}</h2>
+<div class="muted small">{escape(model)} · Android {escape(p.get('ro.build.version.release', '?'))} ·
+Patch <span class="num">{escape(p.get('ro.build.version.security_patch', '?'))}</span> ·
+<span class="mono">{escape(meta['serial'])}</span></div>
+<div class="muted small">Scan {escape(meta['started'][:16].replace('T', ' '))} UTC · FamCheck {escape(meta['tool_version'])} ·
+Indikatorliste SHA-256 <span class="mono">{escape(meta['ioc_sha256'][:16])}…</span></div>
+<div class="state s-{w}" style="margin-top:12px"><span class="big d-{w}">{ICON[w]}</span>{HEADLINE[w]}</div>
+<div style="margin-top:8px">{chips(findings)}</div>
+<p class="muted small" style="margin:10px 0 0">So, wie dieser Scan es gefunden hat, ohne spätere Einordnung.
+Heuristiken: „Kein Befund“ heißt nicht „garantiert sauber“, ein Befund heißt nicht automatisch „Spyware“.</p>
+</div>
+<div class="panel"><h2>Befunde ({len(findings)})</h2>{rows}</div>
+{uploads_html(data)}
+<div class="panel"><h2>Installierte Apps ({len(data['apps'])})</h2><div class="scroll"><table>
+<tr><th>Paket</th><th>Installiert über</th><th>App-Symbol</th><th>Erstinstallation</th><th>Rechte</th></tr>
+{app_rows}</table></div></div>
+</main></body></html>"""
 
 
 def write_html(case_dir: Path, meta: dict, data: dict, findings: list[dict]) -> Path:
-    p = data["props"]
-    rows = "".join(
-        f"<tr><td><span class='sev' style='background:{COLORS[f['severity']]}'>"
-        f"{f['severity']}</span></td><td><b>{escape(f['title'])}</b><br>"
-        f"{escape(f['detail'])}<br><i>→ {escape(f['action'])}</i></td></tr>"
-        for f in findings
-    ) or "<tr><td colspan=2>Keine Auffälligkeiten gefunden.</td></tr>"
-
-    app_rows = "".join(
-        f"<tr><td>{escape(pkg)}</td><td>{escape(a['installer'] or '–')}</td>"
-        f"<td>{'ja' if a.get('has_launcher_icon') else ('nein' if a.get('has_launcher_icon') is False else '?')}</td>"
-        f"<td>{escape(a.get('first_install') or '')}</td>"
-        f"<td>{len(a['granted'])}</td></tr>"
-        for pkg, a in sorted(data["apps"].items())
-    )
-
-    html = f"""<!doctype html><html lang="de"><head><meta charset="utf-8">
-<title>FamCheck – {escape(meta['label'])}</title>
-<style>
-body{{font-family:system-ui,sans-serif;max-width:1000px;margin:2em auto;padding:0 1em;color:#222}}
-table{{border-collapse:collapse;width:100%;margin-bottom:2em}}
-td,th{{border-bottom:1px solid #ddd;padding:.5em;text-align:left;vertical-align:top}}
-.sev{{color:#fff;padding:2px 6px;border-radius:4px;font-size:.8em;white-space:nowrap}}
-small{{color:#666}}
-</style></head><body>
-<h1>FamCheck: {escape(meta['label'])}</h1>
-<p>{escape(p.get('ro.product.manufacturer',''))} {escape(p.get('ro.product.model',''))} ·
-Android {escape(p.get('ro.build.version.release',''))} ·
-Patch {escape(p.get('ro.build.version.security_patch',''))} ·
-Seriennr. {escape(meta['serial'])}<br>
-<small>Scan: {escape(meta['started'])} · Werkzeug-Version {escape(meta['tool_version'])} ·
-IOC-Liste SHA-256 {escape(meta['ioc_sha256'][:16])}…</small></p>
-<p><small>Hinweis: Das sind Heuristiken. „Kein Befund“ heißt nicht „garantiert sauber“,
-ein Befund heißt nicht automatisch „Spyware“.</small></p>
-<h2>Befunde ({len(findings)})</h2><table>{rows}</table>
-<h2>Installierte Apps ({len(data['apps'])})</h2>
-<table><tr><th>Paket</th><th>Installiert über</th><th>App-Symbol</th><th>Erstinstallation</th><th>Rechte</th></tr>
-{app_rows}</table>
-</body></html>"""
     out = case_dir / "report.html"
-    out.write_text(html, encoding="utf-8")
+    out.write_text(render_html(meta, data, findings), encoding="utf-8")
     return out
 
 
