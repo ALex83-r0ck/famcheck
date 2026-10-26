@@ -82,6 +82,19 @@ def safe_serial(serial: str) -> str:
     return cleaned[:64] or "unbekannt"
 
 
+def new_case_dir(parent: Path, name: str) -> Path:
+    """Creates a fresh case folder. Two runs in the same second (fast machine, two quick scans) would get
+    the same timestamp name; then "-2", "-3", ... is appended instead of failing."""
+    for n in range(1, 1000):
+        path = parent / (name if n == 1 else f"{name}-{n}")
+        try:
+            path.mkdir(parents=True)
+            return path
+        except FileExistsError:
+            continue
+    raise FileExistsError(f"Kein freier Ordnername für {name}")
+
+
 def adb_command() -> list[str]:
     """The adb call as argument list. A FAMCHECK_ADB ending in .py (the test double) runs with this Python,
     because Windows cannot start .py files directly."""
@@ -140,6 +153,7 @@ class RecordingAdb:
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         self.manifest_path = case_dir / "manifest.csv"
         self._counter = 0
+        self.timeouts: list[str] = []  # commands that did not answer in time (plausibility check)
         with open(self.manifest_path, "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow(["nr", "zeit_utc", "befehl", "exit_code", "datei", "sha256", "hinweis"])
 
@@ -154,6 +168,7 @@ class RecordingAdb:
             output, rc = proc.stdout + proc.stderr, proc.returncode
         except subprocess.TimeoutExpired:
             output, rc = b"<TIMEOUT>", -1
+            self.timeouts.append(command)
 
         note = ""
         if redact:

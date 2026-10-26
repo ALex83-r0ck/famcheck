@@ -66,6 +66,61 @@ KNOWN_DNS = ("dns.google", "one.one.one.one", "cloudflare-dns.com", "dns.quad9.n
 
 ORDER = {"KRITISCH": 0, "HOCH": 1, "MITTEL": 2, "NIEDRIG": 3, "INFO": 4}
 
+MIN_PACKAGES = 20  # a real Android device has several hundred packages (system included)
+REPORT_GAP = ("Das ist kein Hinweis auf Spyware: FamCheck konnte diesen Teil auf diesem Gerät nicht auslesen. "
+              "Die Rohausgabe liegt im Fall-Ordner unter raw/. Bitte melden, dann wird das Auslesen angepasst. "
+              "Ist die Lücke bei diesem Modell normal, als „Bekannt“ einordnen.")
+
+
+def coverage_findings(data: dict) -> list[dict]:
+    """Turns gaps in what could be read into findings. Scans made before this check existed have no
+    'coverage' and get none."""
+    cov = data.get("coverage")
+    if cov is None:
+        return []
+    out = []
+
+    def gap(severity, title, detail):
+        out.append({"severity": severity, "title": title, "detail": detail, "action": REPORT_GAP, "package": None})
+
+    if not cov["props"]:
+        gap("HOCH", "Scan unvollständig: Geräteeigenschaften nicht lesbar",
+            "Modell und Android-Version kamen leer zurück.")
+    if cov["packages"] < MIN_PACKAGES:
+        gap("HOCH", "Scan unvollständig: Paketliste fehlt oder ist zu kurz",
+            f"Nur {cov['packages']} Pakete gelesen, ein Android-Gerät hat normalerweise mehrere Hundert. "
+            "Ohne Paketliste greift keine Prüfung auf bekannte Spyware.")
+    if cov["apps"] and not cov["apps_with_permissions"]:
+        gap("HOCH", "Scan unvollständig: App-Rechte nicht lesbar",
+            f"Bei keiner der {cov['apps']} Apps ließen sich Rechte auslesen. Prüfungen auf Kamera, Mikrofon, "
+            "Standort usw. fallen damit aus.")
+    if data.get("settings", {}).get("adb_enabled") != "1":
+        gap("HOCH", "Scan unvollständig: Einstellungen nicht lesbar",
+            "Die Verbindung läuft über USB-Debugging, das Gerät meldet es aber nicht als eingeschaltet. "
+            "Die Einstellungen wurden also nicht richtig gelesen.")
+    if cov["timeouts"]:
+        gap("HOCH", "Scan unvollständig: Zeitüberschreitung",
+            "Keine Antwort auf: " + ", ".join(cov["timeouts"][:5]) + ". Kabel oder Verbindung prüfen, neu scannen.")
+
+    if not cov["apps"] and cov["packages"] >= MIN_PACKAGES:
+        gap("NIEDRIG", "Teilprüfung nicht möglich: keine installierten Apps gefunden",
+            "Bei einem genutzten Handy ist das sehr ungewöhnlich.")
+    partial = [
+        (cov["apps"] and not cov["launcher"], "versteckte Apps",
+         "Ohne Liste der App-Symbole lassen sich versteckte Apps nicht erkennen."),
+        (not cov["netstats"], "Uploads pro App", "Die Datenverbrauchs-Statistik ließ sich nicht auswerten."),
+        (not cov["accounts"], "Konten", "Die Kontenliste ließ sich nicht auswerten."),
+        (not cov["device_policy"], "Geräteverwaltung",
+         "Fremdverwaltung und Geräteadministratoren ließen sich nicht prüfen."),
+    ]
+    sdk = data.get("props", {}).get("ro.build.version.sdk", "")
+    if sdk.isdigit() and int(sdk) >= 30:  # lock_settings dump exists from Android 11
+        partial.append((not cov["lock_settings"], "Displaysperre", "Ob eine PIN gesetzt ist, ließ sich nicht prüfen."))
+    for missing, what, detail in partial:
+        if missing:
+            gap("NIEDRIG", f"Teilprüfung nicht möglich: {what}", detail)
+    return out
+
 DONT_DELETE = ("NICHT sofort löschen: Wer sie installiert hat, merkt das evtl. "
                "Erst Ergebnis sichern, Sicherheit der Person klären, dann Hilfe holen "
                "(z. B. Hilfetelefon 116 016 bei häuslicher Gewalt).")
@@ -333,5 +388,6 @@ def analyze(data: dict, today: date | None = None) -> list[dict]:
                 f"Hat {period} {_mb(up['tx'])} hochgeladen, davon {_mb(up['tx_bg'])} im Hintergrund.",
                 "Genau so sieht heimliches Hochladen von Fotos aus. Klären, was die App ist.", pkg))
 
+    findings.extend(coverage_findings(data))
     findings.sort(key=lambda f: (ORDER[f["severity"]], f["title"]))
     return findings

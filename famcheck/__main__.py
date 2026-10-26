@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import __version__
-from .adb import AdbError, RecordingAdb, install_platform_tools, list_devices, safe_serial, tools_dir
+from .adb import (AdbError, RecordingAdb, install_platform_tools, list_devices, new_case_dir, safe_serial,
+                  tools_dir)
 from . import iocs, online
 from .analyze import ORDER, analyze
 from .collect import collect
@@ -25,8 +26,7 @@ def scan_device(serial: str, label: str, cases_root: Path, check_apks: bool = Tr
                 malwarebazaar: bool = False) -> Path:
     started = datetime.now(timezone.utc)
     safe_label = re.sub(r"[^\w-]+", "_", label)
-    case_dir = cases_root / f"{started:%Y%m%d-%H%M%S}_{safe_label}_{safe_serial(serial)}"
-    case_dir.mkdir(parents=True)
+    case_dir = new_case_dir(cases_root, f"{started:%Y%m%d-%H%M%S}_{safe_label}_{safe_serial(serial)}")
     log_file = open(case_dir / "caselog.txt", "a", encoding="utf-8")
 
     def log(msg):
@@ -57,6 +57,9 @@ def scan_device(serial: str, label: str, cases_root: Path, check_apks: bool = Tr
     counts = {s: sum(f["severity"] == s for f in findings) for s in ORDER}
     summary = ", ".join(f"{s} {n}" for s, n in counts.items() if n)
     print(f"  Ergebnis: {summary or 'keine Befunde'}")
+    gaps = [f["title"] for f in findings if f["title"].startswith(("Scan unvollständig", "Teilprüfung"))]
+    if gaps:
+        print("  ! Nicht alles prüfbar: " + "; ".join(t.split(": ", 1)[1] for t in gaps))
     print(f"  Bericht: {report}")
     return case_dir
 

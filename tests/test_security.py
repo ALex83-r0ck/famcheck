@@ -164,6 +164,24 @@ class SecurityTest(unittest.TestCase):
         finally:
             first.server_close()
 
+    def test_two_scans_in_the_same_second(self):
+        """Fast machine: the second scan used to crash with FileExistsError (same timestamp folder)."""
+        from datetime import datetime, timezone
+        import famcheck.__main__ as main
+        fixed = datetime(2026, 10, 26, 18, 0, 0, tzinfo=timezone.utc)
+
+        class Frozen(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return fixed
+        cases = self.root / "cases"
+        with mock.patch.object(main, "datetime", Frozen), mock.patch("builtins.print"):
+            first = scan_device("SAUBER01", "Handy", cases)
+            second = scan_device("SAUBER01", "Handy", cases)
+        self.assertNotEqual(first, second)
+        self.assertTrue(second.name.endswith("-2"))
+        self.assertTrue((second / "findings.json").is_file())
+
     def test_huge_apk_is_not_copied(self):
         adb = RecordingAdb("INFIZIERT01", self.root / "case")
         with mock.patch.dict(os.environ, {"FAKE_ADB_HUGE": "1"}):
