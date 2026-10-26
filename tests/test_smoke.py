@@ -150,6 +150,15 @@ class SmokeTest(unittest.TestCase):
             device = urllib.request.urlopen(base + "/device/SAUBER01").read().decode()
             self.assertIn("com.example.flashlight", device)  # change since previous scan
 
+            case = sorted(self.cases.glob("*_INFIZIERT01"))[0]
+            stored = (case / "report.html").read_bytes()
+            resp = urllib.request.urlopen(base + "/report/" + case.name)
+            self.assertEqual(resp.headers["Cache-Control"], "no-store")
+            report = resp.read().decode()
+            self.assertIn("Scan-Bericht", report)
+            self.assertIn("/device/INFIZIERT01", report)              # link back to the dashboard
+            self.assertEqual((case / "report.html").read_bytes(), stored)  # stored file untouched (hash logged)
+
             for bad in ("/report/../../etc/passwd", "/report/%2e%2e%2fetc", "/device/nope"):
                 with self.assertRaises(urllib.error.HTTPError) as ctx:
                     urllib.request.urlopen(base + bad)
