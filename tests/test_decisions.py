@@ -130,7 +130,7 @@ class DashboardTriageTest(unittest.TestCase):
 
     def test_4_reset_removes_decision(self):
         self.post({"token": self.token(), "serial": "SAUBER01", "key": USB, "status": "reset"})
-        self.assertNotIn(USB, json.loads((self.cases / "decisions.json").read_text()).get("SAUBER01", {}))
+        self.assertNotIn(USB, json.loads((self.cases / "decisions.json").read_text(encoding="utf-8")).get("SAUBER01", {}))
         lines = (self.cases / "decisions_log.jsonl").read_text(encoding="utf-8").splitlines()
         self.assertEqual([json.loads(x)["status"] for x in lines], ["ok", "done", "reset"])  # full trail kept
 

@@ -55,7 +55,7 @@ class SmokeTest(unittest.TestCase):
 
     def findings(self, serial):
         case = sorted(self.cases.glob(f"*_{serial}"))[-1]
-        return json.loads((case / "findings.json").read_text())["findings"]
+        return json.loads((case / "findings.json").read_text(encoding="utf-8"))["findings"]
 
     def test_detects_stalkerware(self):
         titles = [f["title"] for f in self.findings("INFIZIERT01")]
@@ -90,13 +90,13 @@ class SmokeTest(unittest.TestCase):
         manifest = (case / "manifest.csv").read_text(encoding="utf-8")
         self.assertIn("pull /data/app/", manifest)
         self.assertIn(V1_SHA256, manifest)
-        data = json.loads((case / "data.json").read_text())
+        data = json.loads((case / "data.json").read_text(encoding="utf-8"))
         self.assertEqual(data["apps"]["com.example.flashlight"]["apk"]["cert_sha1"], V2_CERT_SHA1)
         self.assertNotIn("apk", data["apps"]["com.whatsapp"])  # store apps are not pulled
 
     def test_uploads_parsed(self):
         case = sorted(self.cases.glob("*_SAUBER01"))[0]
-        data = json.loads((case / "data.json").read_text())
+        data = json.loads((case / "data.json").read_text(encoding="utf-8"))
         wa = next(u for u in data["uploads"] if "com.whatsapp" in u["packages"])
         self.assertEqual(wa["tx"], 45 * 1024 * 1024)       # tagged subset not counted
         self.assertEqual(wa["tx_bg"], 5 * 1024 * 1024)
@@ -108,11 +108,11 @@ class SmokeTest(unittest.TestCase):
             for f in (case / "raw").iterdir():
                 self.assertNotIn(b"@gmail.com", f.read_bytes(), f)
                 self.assertNotIn(b"+491701234567", f.read_bytes(), f)
-            self.assertNotIn("@gmail.com", (case / "data.json").read_text())
+            self.assertNotIn("@gmail.com", (case / "data.json").read_text(encoding="utf-8"))
 
     def test_no_false_positives_on_clean_phone(self):
         first = sorted(self.cases.glob("*_SAUBER01"))[0]
-        findings = json.loads((first / "findings.json").read_text())["findings"]
+        findings = json.loads((first / "findings.json").read_text(encoding="utf-8"))["findings"]
         self.assertEqual([f["severity"] for f in findings], ["NIEDRIG"])  # only USB debugging
 
     def test_manifest_hashes_match(self):

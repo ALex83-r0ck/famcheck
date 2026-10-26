@@ -1,0 +1,37 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.10", "3.11", "3.12", "3.13"]
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Abhängigkeiten
+        run: python -m pip install -r requirements.txt
+      - name: Syntax mit dieser Python-Version
+        run: python -m compileall -q famcheck tests
+      - name: Tests
+        run: python tests/ci_annotate.py
+      - name: Tests mit Windows-Zeilenenden vom Gerät (\r\n)
+        if: runner.os == 'Linux'
+        env:
+          FAKE_ADB_CRLF: "1"
+        run: python tests/ci_annotate.py

@@ -74,10 +74,18 @@ def install_platform_tools(zip_source: str | None = None) -> Path:
     return adb
 
 
+def adb_command() -> list[str]:
+    """The adb call as argument list. A FAMCHECK_ADB ending in .py (the test double) runs with this Python,
+    because Windows cannot start .py files directly."""
+    path = adb_binary()
+    return [sys.executable, path] if path.endswith(".py") else [path]
+
+
 def list_devices() -> list[dict]:
     """Returns connected devices as [{'serial':..., 'state':..., 'model':...}]."""
     out = subprocess.run(
-        [adb_binary(), "devices", "-l"], capture_output=True, text=True, timeout=30
+        [*adb_command(), "devices", "-l"], capture_output=True, text=True, encoding="utf-8",
+        errors="replace", timeout=30
     ).stdout
     devices = []
     for line in out.splitlines():
@@ -94,8 +102,8 @@ def is_locked(serial: str) -> bool | None:
     """True if the lock screen is showing or the screen is off. None if it cannot be determined."""
     def sh(cmd):
         try:
-            return subprocess.run([adb_binary(), "-s", serial, "shell", cmd],
-                                  capture_output=True, text=True, timeout=20).stdout
+            return subprocess.run([*adb_command(), "-s", serial, "shell", cmd], capture_output=True,
+                                  text=True, encoding="utf-8", errors="replace", timeout=20).stdout
         except subprocess.TimeoutExpired:
             return ""
 
@@ -132,7 +140,7 @@ class RecordingAdb:
         self._counter += 1
         try:
             proc = subprocess.run(
-                [adb_binary(), "-s", self.serial, "shell", command],
+                [*adb_command(), "-s", self.serial, "shell", command],
                 capture_output=True, timeout=timeout,
             )
             output, rc = proc.stdout + proc.stderr, proc.returncode
@@ -152,7 +160,8 @@ class RecordingAdb:
                 command, rc, f"raw/{filename}",
                 hashlib.sha256(output).hexdigest(), note,
             ])
-        return output.decode("utf-8", errors="replace")
+        # Old adb shell (Android < 7) and Windows tools send \r\n; parsers expect \n. Raw file stays byte-exact.
+        return output.decode("utf-8", errors="replace").replace("\r\n", "\n")
 
     def pull_fingerprints(self, remote: str, max_bytes: int = 300 * 1024 * 1024) -> dict:
         """Pulls one APK into a temp folder, fingerprints it (hash + signing cert) and deletes it again.
@@ -168,7 +177,7 @@ class RecordingAdb:
         with tempfile.TemporaryDirectory() as tmp:
             local = Path(tmp) / "app.apk"
             try:
-                proc = subprocess.run([adb_binary(), "-s", self.serial, "pull", remote, str(local)],
+                proc = subprocess.run([*adb_command(), "-s", self.serial, "pull", remote, str(local)],
                                       capture_output=True, timeout=600)
                 rc = proc.returncode
                 if rc != 0 or not local.exists():

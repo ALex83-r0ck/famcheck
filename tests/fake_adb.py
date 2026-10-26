@@ -6,6 +6,7 @@ FAKE_ADB_NEWAPP=1 adds an extra sideloaded app and a second Google account to SA
 FAKE_ADB_STATE=<file.json> makes it stateful: setting writes are remembered and every writing
 command is logged under "writes", so tests can check exactly what was changed on the "phone".
 FAKE_ADB_LOCKED=1 reports a locked screen.
+FAKE_ADB_CRLF=1 ends lines with \r\n, like Windows and old adb shells.
 """
 import json
 import shutil
@@ -19,6 +20,8 @@ import os
 import sys
 
 new_app = os.environ.get("FAKE_ADB_NEWAPP") == "1"
+if os.environ.get("FAKE_ADB_CRLF") == "1":  # behave like Windows / old adb shell: \r\n line endings
+    sys.stdout.reconfigure(newline="\r\n")
 a = sys.argv[1:]
 if a[:1] == ["devices"]:
     print("* daemon not running; starting now at tcp:5037")
@@ -35,7 +38,7 @@ if a[2:3] == ["pull"]:
 serial, cmd = a[1], a[3]
 bad = serial == "INFIZIERT01"
 STATE_FILE = os.environ.get("FAKE_ADB_STATE")
-state = json.loads(Path(STATE_FILE).read_text()) if STATE_FILE and Path(STATE_FILE).exists() else {}
+state = json.loads(Path(STATE_FILE).read_text(encoding="utf-8")) if STATE_FILE and Path(STATE_FILE).exists() else {}
 WRITES = ("settings put ", "settings delete ", "appops set ", "pm revoke ", "pm grant ", "pm disable-user ",
           "pm enable ", "cmd deviceidle whitelist ", "cmd notification ", "pm uninstall")
 if any(cmd.startswith(w) for w in WRITES):

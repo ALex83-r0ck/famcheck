@@ -30,7 +30,7 @@ class FixTest(unittest.TestCase):
                               env={**self.env, **env}, input=stdin, capture_output=True, text=True, check=True).stdout
 
     def writes(self):
-        return json.loads(self.state.read_text()).get("writes", []) if self.state.exists() else []
+        return json.loads(self.state.read_text(encoding="utf-8")).get("writes", []) if self.state.exists() else []
 
     def fixlog(self):
         return json.loads(next(self.cases.glob("*_fix_*")).joinpath("fixlog.json").read_text(encoding="utf-8"))
