@@ -212,12 +212,15 @@ def collect(adb: RecordingAdb, log, check_apks: bool = True) -> dict:
 
     log("Lese Geräteverwaltung ...")
     policy = adb.shell("dumpsys device_policy")
+    coverage = {"device_policy": "Device Policy" in policy}
     data["device_admins"] = _parse_device_admins(policy)
     data["device_owner"], data["profile_owners"] = _parse_owners(policy)
 
     log("Lese Displaysperre, Konten, Akku-Ausnahmen ...")
     data["lock_credential"] = _parse_lock_credential(adb.shell("dumpsys lock_settings"))
-    data["accounts"] = _parse_accounts(adb.shell("dumpsys account", redact=_redact_accounts))
+    accounts_out = adb.shell("dumpsys account", redact=_redact_accounts)
+    data["accounts"] = _parse_accounts(accounts_out)
+    coverage["accounts"] = "Accounts:" in accounts_out or "Account {" in accounts_out
     data["battery_exempt"] = _parse_battery_exempt(adb.shell("dumpsys deviceidle whitelist"))
     sms = data["settings"].get("sms_default_application", "")
     data["sms_default"] = sms if sms and sms != "null" else None
@@ -269,4 +272,18 @@ def collect(adb: RecordingAdb, log, check_apks: bool = True) -> dict:
          for uid, v in per_uid.items() if v["tx"] > 0),
         key=lambda e: e["tx"], reverse=True)
     data["uploads_days"] = days
+
+    # What could actually be read. analyze() turns gaps into findings, so a scan that read nothing
+    # never looks like "Alles in Ordnung".
+    data["coverage"] = {
+        **coverage,
+        "props": bool(data["props"].get("ro.product.model") or data["props"].get("ro.build.version.release")),
+        "packages": len(all_packages),
+        "apps": len(third_party),
+        "apps_with_permissions": sum(1 for m in third_party.values() if m["requested"] or m["granted"]),
+        "launcher": data["launcher_query_ok"],
+        "netstats": bool(per_uid),
+        "lock_settings": data["lock_credential"] is not None,
+        "timeouts": list(adb.timeouts),
+    }
     return data

@@ -140,6 +140,7 @@ class RecordingAdb:
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         self.manifest_path = case_dir / "manifest.csv"
         self._counter = 0
+        self.timeouts: list[str] = []  # commands that did not answer in time (plausibility check)
         with open(self.manifest_path, "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow(["nr", "zeit_utc", "befehl", "exit_code", "datei", "sha256", "hinweis"])
 
@@ -154,6 +155,7 @@ class RecordingAdb:
             output, rc = proc.stdout + proc.stderr, proc.returncode
         except subprocess.TimeoutExpired:
             output, rc = b"<TIMEOUT>", -1
+            self.timeouts.append(command)
 
         note = ""
         if redact:

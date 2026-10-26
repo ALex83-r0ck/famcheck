@@ -88,6 +88,19 @@ Scan, nach einem `scan --label "Handy Papa"` erkennt `watch` es also wieder.
 | Aktive VPN-Verbindung, Privates DNS | gesamter Datenverkehr läuft über fremde Stelle |
 | Play Protect aus, ungeprüfte USB-Installationen | Schutz von Google umgangen |
 
+### Kann FamCheck das Gerät überhaupt lesen?
+
+Jeder Scan prüft, ob er plausibel ist. Ist er es nicht, zeigt FamCheck nie „Alles in Ordnung“:
+
+- **Hoch: „Scan unvollständig: …“**, wenn Grundlegendes fehlt: weniger als 20 Pakete (echte Geräte haben
+  mehrere Hundert), keine lesbaren App-Rechte, keine Geräteeigenschaften, Zeitüberschreitungen, oder das
+  Gerät meldet USB-Debugging nicht als eingeschaltet, obwohl die Verbindung genau darüber läuft.
+- **Niedrig: „Teilprüfung nicht möglich: …“**, wenn einzelne Prüfungen ausfallen (Uploads, Konten,
+  Displaysperre, Geräteverwaltung, versteckte Apps).
+
+Das ist kein Hinweis auf Spyware, sondern auf eine Lücke beim Auslesen. Die Rohausgabe liegt unter `raw/`.
+Ist eine Lücke bei einem Modell normal, ordnest du sie einmal als „Bekannt“ ein.
+
 ## Ergebnisordner
 
 Liegt unter `cases/` und ist per `.gitignore` vom Repo ausgeschlossen.

@@ -7,6 +7,8 @@ FAKE_ADB_STATE=<file.json> makes it stateful: setting writes are remembered and 
 command is logged under "writes", so tests can check exactly what was changed on the "phone".
 FAKE_ADB_LOCKED=1 reports a locked screen.
 FAKE_ADB_HUGE=1 reports every APK as ~1 TB (size check before pulling).
+FAKE_ADB_BROKEN=1 returns empty output for properties, package lists and settings (unreadable device).
+FAKE_ADB_NO_NETSTATS=1 returns no data usage statistics.
 FAKE_ADB_CRLF=1 ends lines with \r\n, like Windows and old adb shells.
 """
 import json
@@ -38,6 +40,12 @@ if a[2:3] == ["pull"]:
     sys.exit(0)
 serial, cmd = a[1], a[3]
 bad = serial == "INFIZIERT01"
+# a real device has hundreds of system packages; the plausibility check needs at least 20
+SYSTEM_PACKAGES = [(f"com.android.system.part{i:02d}", 1000 + i) for i in range(40)]
+if os.environ.get("FAKE_ADB_BROKEN") == "1" and cmd.startswith(("getprop", "pm list packages", "settings get")):
+    sys.exit(0)
+if os.environ.get("FAKE_ADB_NO_NETSTATS") == "1" and cmd == "dumpsys netstats detail":
+    sys.exit(0)
 STATE_FILE = os.environ.get("FAKE_ADB_STATE")
 state = json.loads(Path(STATE_FILE).read_text(encoding="utf-8")) if STATE_FILE and Path(STATE_FILE).exists() else {}
 WRITES = ("settings put ", "settings delete ", "appops set ", "pm revoke ", "pm grant ", "pm disable-user ",
@@ -133,12 +141,13 @@ elif cmd == "dumpsys netstats detail":
     if bad: rec(10250, "DEFAULT", 320 * 1024 * 1024)
 elif cmd == "pm list packages -U":
     pk = [("android", 1000), ("com.google.android.gms", 10120), ("com.whatsapp", 10200),
-          ("com.google.android.marvin.talkback", 10130)]
+          ("com.google.android.marvin.talkback", 10130)] + SYSTEM_PACKAGES
     if bad: pk += [("com.systemservice", 10250), ("com.example.flashlight", 10251), ("com.yowhatsapp", 10252)]
     if new_app and not bad: pk += [("com.example.flashlight", 10251)]
     print("\n".join(f"package:{p} uid:{u}" for p, u in pk))
 elif cmd == "pm list packages":
     pk = ["android", "com.google.android.gms", "com.whatsapp", "com.google.android.marvin.talkback"]
+    pk += [p for p, _ in SYSTEM_PACKAGES]
     if bad: pk += ["com.systemservice", "com.example.flashlight"]
     if new_app and not bad: pk += ["com.example.flashlight"]
     print("\n".join("package:" + p for p in pk))

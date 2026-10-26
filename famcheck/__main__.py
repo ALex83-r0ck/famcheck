@@ -57,6 +57,9 @@ def scan_device(serial: str, label: str, cases_root: Path, check_apks: bool = Tr
     counts = {s: sum(f["severity"] == s for f in findings) for s in ORDER}
     summary = ", ".join(f"{s} {n}" for s, n in counts.items() if n)
     print(f"  Ergebnis: {summary or 'keine Befunde'}")
+    gaps = [f["title"] for f in findings if f["title"].startswith(("Scan unvollständig", "Teilprüfung"))]
+    if gaps:
+        print("  ! Nicht alles prüfbar: " + "; ".join(t.split(": ", 1)[1] for t in gaps))
     print(f"  Bericht: {report}")
     return case_dir
 
