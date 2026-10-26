@@ -256,7 +256,8 @@ def run_fix(serial: str, scan_dir: Path, cases_root: Path, dry_run: bool = False
         return None
 
     started = datetime.now(timezone.utc)
-    fix_dir = cases_root / f"{started:%Y%m%d-%H%M%S}_fix_{re.sub(r'[^\w-]+', '_', label)}_{serial}"
+    safe_label = re.sub(r"[^\w-]+", "_", label)
+    fix_dir = cases_root / f"{started:%Y%m%d-%H%M%S}_fix_{safe_label}_{serial}"
     adb = RecordingAdb(serial, fix_dir)
     print_fn(f"\nFamCheck fix für {label} ({serial}), Grundlage: Scan vom {meta['started'][:16].replace('T', ' ')} UTC")
     print_fn("Lese den aktuellen Zustand des Handys ...")
