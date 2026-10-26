@@ -160,7 +160,8 @@ class RecordingAdb:
                 command, rc, f"raw/{filename}",
                 hashlib.sha256(output).hexdigest(), note,
             ])
-        return output.decode("utf-8", errors="replace")
+        # Old adb shell (Android < 7) and Windows tools send \r\n; parsers expect \n. Raw file stays byte-exact.
+        return output.decode("utf-8", errors="replace").replace("\r\n", "\n")
 
     def pull_fingerprints(self, remote: str, max_bytes: int = 300 * 1024 * 1024) -> dict:
         """Pulls one APK into a temp folder, fingerprints it (hash + signing cert) and deletes it again.

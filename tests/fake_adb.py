@@ -6,6 +6,7 @@ FAKE_ADB_NEWAPP=1 adds an extra sideloaded app and a second Google account to SA
 FAKE_ADB_STATE=<file.json> makes it stateful: setting writes are remembered and every writing
 command is logged under "writes", so tests can check exactly what was changed on the "phone".
 FAKE_ADB_LOCKED=1 reports a locked screen.
+FAKE_ADB_CRLF=1 ends lines with \r\n, like Windows and old adb shells.
 """
 import json
 import shutil
@@ -19,6 +20,8 @@ import os
 import sys
 
 new_app = os.environ.get("FAKE_ADB_NEWAPP") == "1"
+if os.environ.get("FAKE_ADB_CRLF") == "1":  # behave like Windows / old adb shell: \r\n line endings
+    sys.stdout.reconfigure(newline="\r\n")
 a = sys.argv[1:]
 if a[:1] == ["devices"]:
     print("* daemon not running; starting now at tcp:5037")

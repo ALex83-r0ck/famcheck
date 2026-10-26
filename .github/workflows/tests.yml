@@ -20,8 +20,8 @@ jobs:
     env:
       PYTHONUTF8: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
       - name: Abhängigkeiten
@@ -29,4 +29,9 @@ jobs:
       - name: Syntax mit dieser Python-Version
         run: python -m compileall -q famcheck tests
       - name: Tests
-        run: python -m unittest discover tests -v
+        run: python tests/ci_annotate.py
+      - name: Tests mit Windows-Zeilenenden vom Gerät (\r\n)
+        if: runner.os == 'Linux'
+        env:
+          FAKE_ADB_CRLF: "1"
+        run: python tests/ci_annotate.py
