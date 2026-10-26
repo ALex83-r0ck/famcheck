@@ -25,13 +25,13 @@ def _known_label(cases_root: Path, serial: str) -> str | None:
 def watch(cases_root: Path, port: int | None, scan_device) -> None:
     if port:
         from .web import start_background
-        url = f"http://127.0.0.1:{port}"
         try:
-            start_background(cases_root, port)
+            url = start_background(cases_root, port).RequestHandlerClass.login_url
             print(f"Dashboard: {url}")
+            webbrowser.open(url)
         except OSError:
-            print(f"Port {port} ist belegt (läuft das Dashboard schon?). Öffne {url}")
-        webbrowser.open(url)
+            print(f"Port {port} ist belegt. Läuft das Dashboard schon in einem anderen Fenster? "
+                  "Dann den dort angezeigten Link benutzen, oder das alte Fenster schließen.")
 
     print("\nWarte auf Handys. Einfach per USB anstecken. (Beenden: Strg+C)\n")
     done: set[str] = set()      # scanned while plugged in; rescanned after replugging

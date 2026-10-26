@@ -136,23 +136,25 @@ class SmokeTest(unittest.TestCase):
         port = server.server_address[1]
         server.RequestHandlerClass = make_handler(self.cases, port)
         threading.Thread(target=server.serve_forever, daemon=True).start()
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
         try:
             base = f"http://127.0.0.1:{port}"
-            overview = urllib.request.urlopen(base + "/").read().decode()
+            opener.open(server.RequestHandlerClass.login_url)
+            overview = opener.open(base + "/").read().decode()
             self.assertIn("INFIZIERT01", overview)
             self.assertNotIn("<script>x", overview)          # label is escaped
             self.assertIn("&lt;script&gt;x", overview)
 
-            history = urllib.request.urlopen(base + "/verlauf").read().decode()
+            history = opener.open(base + "/verlauf").read().decode()
             self.assertEqual(history.count("class='mark'"), 3)  # 2 scans SAUBER01 + 1 INFIZIERT01
             self.assertIn("+1 App", history)
 
-            device = urllib.request.urlopen(base + "/device/SAUBER01").read().decode()
+            device = opener.open(base + "/device/SAUBER01").read().decode()
             self.assertIn("com.example.flashlight", device)  # change since previous scan
 
             case = sorted(self.cases.glob("*_INFIZIERT01"))[0]
             stored = (case / "report.html").read_bytes()
-            resp = urllib.request.urlopen(base + "/report/" + case.name)
+            resp = opener.open(base + "/report/" + case.name)
             self.assertEqual(resp.headers["Cache-Control"], "no-store")
             report = resp.read().decode()
             self.assertIn("Scan-Bericht", report)
@@ -161,12 +163,12 @@ class SmokeTest(unittest.TestCase):
 
             for bad in ("/report/../../etc/passwd", "/report/%2e%2e%2fetc", "/device/nope"):
                 with self.assertRaises(urllib.error.HTTPError) as ctx:
-                    urllib.request.urlopen(base + bad)
+                    opener.open(base + bad)
                 self.assertEqual(ctx.exception.code, 404)
 
             req = urllib.request.Request(base + "/", headers={"Host": "evil.example:80"})
             with self.assertRaises(urllib.error.HTTPError) as ctx:
-                urllib.request.urlopen(req)
+                opener.open(req)
             self.assertEqual(ctx.exception.code, 403)
         finally:
             server.shutdown()

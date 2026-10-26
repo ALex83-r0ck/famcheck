@@ -69,6 +69,8 @@ class DashboardTriageTest(unittest.TestCase):
         cls.server.RequestHandlerClass = make_handler(cls.cases, cls.port)
         threading.Thread(target=cls.server.serve_forever, daemon=True).start()
         cls.base = f"http://127.0.0.1:{cls.port}"
+        cls.jar = urllib.request.HTTPCookieProcessor()
+        urllib.request.build_opener(cls.jar).open(cls.server.RequestHandlerClass.login_url)
 
     @classmethod
     def tearDownClass(cls):
@@ -82,12 +84,12 @@ class DashboardTriageTest(unittest.TestCase):
                        cwd=ROOT, env={**os.environ, "FAMCHECK_ADB": str(FAKE_ADB)}, check=True, capture_output=True)
 
     def get(self, path):
-        return urllib.request.urlopen(self.base + path).read().decode()
+        return urllib.request.build_opener(self.jar).open(self.base + path).read().decode()
 
     def post(self, fields, headers=None):
         req = urllib.request.Request(self.base + "/decide", data=urllib.parse.urlencode(fields).encode(),
                                      headers=headers or {})
-        opener = urllib.request.build_opener(NoRedirect)
+        opener = urllib.request.build_opener(self.jar, NoRedirect)
         try:
             return opener.open(req).status
         except urllib.error.HTTPError as e:

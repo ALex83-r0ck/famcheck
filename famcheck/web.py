@@ -9,8 +9,10 @@ import hashlib
 import hmac
 import json
 import secrets
+import webbrowser
 from datetime import date, datetime, timedelta, timezone
 from html import escape
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote
@@ -316,11 +318,24 @@ def render_device(serial: str, scans: list[dict], devices: dict, now: datetime |
     return _page(f"FamCheck – {last['meta']['label']}", "", body, devices)
 
 
+COOKIE = "famcheck_session"
+
+LOCKED_PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>FamCheck – Anmeldung nötig</title>
+<style>%CSS%</style></head><body><main><div class="panel"><h2>Anmeldung nötig</h2>
+<p>Das Dashboard zeigt private Daten und öffnet sich nur über den Link, den <code>famcheck serve</code> oder
+<code>famcheck watch</code> beim Start im Terminal anzeigt und im Browser öffnet.</p>
+<p class="muted small">Nach jedem Neustart des Dashboards gilt ein neuer Link.</p></div></main></body></html>"""
+
+
 def make_handler(cases_root: Path, port: int):
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
     allowed_origins = {f"http://{h}" for h in allowed_hosts}
     # Secret per dashboard start; forms must send it back. A foreign website cannot know it (CSRF protection).
     token = secrets.token_urlsafe(32)
+    # Second secret per start: opens the dashboard at all. Only the person who started it (terminal/browser)
+    # gets the login link, so other accounts or programs on the same PC cannot read the family's data.
+    access_key = secrets.token_urlsafe(32)
 
     class Handler(BaseHTTPRequestHandler):
         def _send(self, status: int, body: str, ctype="text/html; charset=utf-8"):
@@ -338,12 +353,35 @@ def make_handler(cases_root: Path, port: int):
             self.end_headers()
             self.wfile.write(data)
 
+        def _logged_in(self) -> bool:
+            jar = SimpleCookie()
+            try:
+                jar.load(self.headers.get("Cookie", ""))
+            except Exception:
+                return False
+            return COOKIE in jar and hmac.compare_digest(jar[COOKIE].value, access_key)
+
         def do_GET(self):
             # Blocks DNS-rebinding: a foreign website must not read the dashboard.
             if self.headers.get("Host") not in allowed_hosts:
                 return self._send(403, "Forbidden", "text/plain")
-            devices = load_cases(cases_root)
             path = unquote(self.path.split("?")[0])
+
+            if path == "/login":
+                key = parse_qs(self.path.partition("?")[2]).get("key", [""])[0]
+                if not hmac.compare_digest(key, access_key):
+                    return self._send(403, LOCKED_PAGE.replace("%CSS%", CSS))
+                self.send_response(303)  # key leaves the address bar right away
+                self.send_header("Set-Cookie", f"{COOKIE}={access_key}; HttpOnly; SameSite=Strict; Path=/")
+                self.send_header("Location", "/")
+                self.send_header("Content-Length", "0")
+                self.send_header("Referrer-Policy", "no-referrer")
+                self.end_headers()
+                return
+            if not self._logged_in():
+                return self._send(401, LOCKED_PAGE.replace("%CSS%", CSS))
+
+            devices = load_cases(cases_root)
 
             if path == "/":
                 return self._send(200, render_overview(devices))
@@ -369,6 +407,8 @@ def make_handler(cases_root: Path, port: int):
             origin = self.headers.get("Origin")
             if origin and origin not in allowed_origins:
                 return self._send(403, "Fremde Herkunft", "text/plain")
+            if not self._logged_in():
+                return self._send(401, LOCKED_PAGE.replace("%CSS%", CSS))
             if unquote(self.path.split("?")[0]) != "/decide":
                 return self._send(404, "Nicht gefunden", "text/plain")
             try:
@@ -400,20 +440,25 @@ def make_handler(cases_root: Path, port: int):
         def log_message(self, *args):
             pass
 
+    Handler.login_url = f"http://127.0.0.1:{port}/login?key={access_key}"
     return Handler
 
 
 def start_background(cases_root: Path, port: int) -> ThreadingHTTPServer:
-    """Starts the dashboard in a daemon thread (used by 'watch')."""
+    """Starts the dashboard in a daemon thread (used by 'watch'). The login link is
+    server.RequestHandlerClass.login_url."""
     import threading
     server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(cases_root, port))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
 
-def serve(cases_root: Path, port: int):
+def serve(cases_root: Path, port: int, open_browser: bool = True):
     server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(cases_root, port))
-    print(f"FamCheck-Dashboard: http://127.0.0.1:{port}  (Strg+C zum Beenden)")
+    url = server.RequestHandlerClass.login_url
+    print(f"FamCheck-Dashboard: {url}\n(Link gilt bis zum Beenden, Strg+C zum Beenden)")
+    if open_browser:
+        webbrowser.open(url)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
