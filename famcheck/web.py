@@ -9,6 +9,8 @@ import hashlib
 import hmac
 import json
 import secrets
+import socket
+import sys
 import webbrowser
 from datetime import date, datetime, timedelta, timezone
 from html import escape
@@ -499,17 +501,42 @@ def make_handler(cases_root: Path, port: int):
     return Handler
 
 
+PORT_BUSY = ("Port {port} ist schon belegt. Meist läuft noch ein älteres FamCheck-Fenster.\n"
+             "Prüfen:   netstat -ano | findstr :{port}\n"
+             "Beenden:  Stop-Process -Id <Nummer ganz rechts>\n"
+             "Oder einen anderen Port nehmen: --port 8800")
+
+
+class DashboardServer(ThreadingHTTPServer):
+    """Takes the port exclusively. Python's default SO_REUSEADDR lets a second process share an already
+    used port on Windows; it would then get the connections, including the login link with its key."""
+
+    allow_reuse_address = sys.platform != "win32"
+
+    def server_bind(self):
+        if sys.platform == "win32" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
+def create_server(cases_root: Path, port: int) -> DashboardServer:
+    try:
+        return DashboardServer(("127.0.0.1", port), make_handler(cases_root, port))
+    except OSError as e:
+        raise SystemExit(PORT_BUSY.format(port=port)) from e
+
+
 def start_background(cases_root: Path, port: int) -> ThreadingHTTPServer:
     """Starts the dashboard in a daemon thread (used by 'watch'). The login link is
     server.RequestHandlerClass.login_url."""
     import threading
-    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(cases_root, port))
+    server = create_server(cases_root, port)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
 
 def serve(cases_root: Path, port: int, open_browser: bool = True):
-    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(cases_root, port))
+    server = create_server(cases_root, port)
     url = server.RequestHandlerClass.login_url
     print(f"FamCheck-Dashboard: {url}\n(Link gilt bis zum Beenden, Strg+C zum Beenden)")
     if open_browser:

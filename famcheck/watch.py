@@ -29,9 +29,8 @@ def watch(cases_root: Path, port: int | None, scan_device) -> None:
             url = start_background(cases_root, port).RequestHandlerClass.login_url
             print(f"Dashboard: {url}")
             webbrowser.open(url)
-        except OSError:
-            print(f"Port {port} ist belegt. Läuft das Dashboard schon in einem anderen Fenster? "
-                  "Dann den dort angezeigten Link benutzen, oder das alte Fenster schließen.")
+        except SystemExit as e:  # port busy: explain, keep scanning without dashboard
+            print(f"{e}\nScans laufen trotzdem weiter, nur ohne Dashboard.")
 
     print("\nWarte auf Handys. Einfach per USB anstecken. (Beenden: Strg+C)\n")
     done: set[str] = set()      # scanned while plugged in; rescanned after replugging
