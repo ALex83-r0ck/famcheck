@@ -111,6 +111,8 @@ famcheck/
   analyze.py    Heuristiken → Befunde
   report.py     HTML-Einzelbericht, Vergleich zweier Scans
   web.py        lokales Dashboard: Status-Kacheln, Verlauf, Gerätedetails (nur Standardbibliothek)
+  static/app.js Filter, Suche, Auf-/Zuklappen, Live-Update, Einordnen ohne Neuladen
+  style.py      gemeinsames Design von Dashboard und Bericht
   decisions.py  Einordnung von Befunden (Bekannt/Erledigt/Beobachten) mit Protokoll
   fix.py        Befunde beheben: Plan aus dem Live-Zustand, Rückfrage, Protokoll, Undo
   watch.py      Plug & Play: wartet auf Freigabe am Handy, scannt automatisch
@@ -132,6 +134,20 @@ FamCheck.bat    Doppelklick-Start für Windows
 ## Geplant
 
 Siehe [ROADMAP.md](ROADMAP.md).
+
+## Dashboard bedienen
+
+- **Befunde aufklappen:** Ein Klick auf einen Befund zeigt Details, Hinweise zum Beheben und das Einordnen.
+  Mit „Alle auf“ und „Alle zu“ geht es für alle auf einmal.
+- **Filtern und suchen:** Die Schwere-Chips blenden Stufen ein und aus. Die Suche findet App-Namen
+  und Befundtexte, die Sortierung geht nach Schwere, Titel oder App. Die Auswahl bleibt erhalten,
+  solange der Tab offen ist.
+- **Live:** Ist ein neuer Scan fertig (z. B. über `watch`) oder hat sich eine Einordnung geändert,
+  aktualisiert sich die Seite von selbst. Aufgeklappte Befunde, Filter und Scrollposition bleiben dabei
+  erhalten. Tippst du gerade eine Notiz, erscheint stattdessen ein Hinweis „Neue Scan-Daten sind da“.
+- **Einordnen ohne Neuladen:** Speichern bestätigt ein kurzer Hinweis unten rechts.
+
+Alles funktioniert auch ohne JavaScript, dann ohne Filter und ohne Live-Update.
 
 ## Befunde einordnen
 
@@ -196,7 +212,8 @@ FamCheck verarbeitet Daten von Geräten, die manipuliert sein könnten. Deshalb:
 - **Gerätedaten gelten als feindlich:** Seriennummern werden vor der Verwendung in Ordnernamen bereinigt,
   alles Angezeigte wird escaped, APKs werden vor dem Kopieren auf ihre Größe geprüft und nie aufbewahrt.
 - **Dashboard:** nur `127.0.0.1`, Host- und Origin-Prüfung (gegen DNS-Rebinding), Token gegen gefälschte
-  Formulare, darf nicht in fremde Seiten eingebettet werden (Clickjacking), kein JavaScript, kein Cache.
+  Formulare, darf nicht in fremde Seiten eingebettet werden (Clickjacking), JavaScript nur als eigene Datei
+  (`script-src 'self'`, kein eingebetteter Code), kein Cache.
 - **`fix --undo`** führt nur die Befehlsarten aus, die `fix` selbst schreibt. Eine manipulierte
   `fixlog.json` wird abgelehnt.
 - `tests/test_security.py` spielt diese Angriffe nach.

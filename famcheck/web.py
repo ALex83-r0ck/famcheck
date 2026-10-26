@@ -114,8 +114,8 @@ def _page(title: str, active: str, body: str, devices: dict) -> str:
                   for key, href, label in (("overview", "/", "Übersicht"), ("history", "/verlauf", "Verlauf")))
     return (f"<!doctype html><html lang='de'><head><meta charset='utf-8'>"
             f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
-            f"<meta http-equiv='refresh' content='60'><title>{escape(title)}</title>"
-            f"<style>{CSS}</style></head><body><main>"
+            f"<title>{escape(title)}</title><style>{CSS}</style>"
+            f"<script src='/static/app.js' defer></script></head><body><main>"
             f"<div class='top'><h1>FamCheck</h1><nav class='nav'>{nav}</nav></div>"
             f"{_banner()}<div class='summary'>{summary}</div>{body}</main></body></html>")
 
@@ -249,24 +249,53 @@ def _decision_html(f: dict) -> str:
     return f"<div class='decision'>{label} (eingeordnet am {when}){note}</div>"
 
 
-def _finding_html(serial: str, f: dict, token: str, all_findings: list[dict]) -> str:
+STATE_TAGS = {"suppressed": ("", None), "watch": ("Beobachten", ""), "changed": ("wieder offen", "warn"),
+              "reopened": ("wieder offen", "warn")}
+
+
+def _finding_html(serial: str, f: dict, token: str, all_findings: list[dict], rank: int) -> str:
     key = SEV_KEY.get(f["severity"], "ok")
+    sev = SEV_KEY.get(f["severity"], "info")  # for the filter, INFO stays its own group
     label = SEV_LABEL.get(SEV_KEY.get(f["severity"]), "Info")
     d = f.get("decision") or {}
     buttons = "".join(f"<button name='status' value='{v}'>{escape(t)}</button>" for v, t in decisions.STATUSES.items())
     if d:
         buttons += "<button name='status' value='reset'>Zurücksetzen</button>"
-    toggle = "Einordnung ändern …" if d else "Einordnen …"
-    form = (f"<details class='triage-toggle'><summary>{toggle}</summary>"
-            f"<form class='triage' method='post' action='/decide'>"
+    form = (f"<form class='triage' method='post' action='/decide'>"
             f"<input type='hidden' name='token' value='{escape(token)}'>"
             f"<input type='hidden' name='serial' value='{escape(serial)}'>"
             f"<input type='hidden' name='key' value='{escape(decisions.finding_key(f))}'>"
             f"<input type='text' name='note' maxlength='{decisions.MAX_NOTE}' placeholder='Notiz (optional)' "
-            f"aria-label='Notiz' value='{escape(d.get('note', ''))}'>{buttons}</form></details>") if token else ""
-    return (f"<div class='finding' id='{_anchor(f)}'><span class='chip s-{key}'>{label}</span>"
-            f"<b>{escape(f['title'])}</b><span class='a'>{escape(f['detail'])}<br>→ {escape(f['action'])}</span>"
-            f"{_fix_hint(serial, f, all_findings)}{_decision_html(f)}{form}</div>")
+            f"aria-label='Notiz' value='{escape(d.get('note', ''))}'>{buttons}</form>") if token else ""
+    if d and f.get("decision_state") == "suppressed":
+        tag_text, tag_cls = decisions.STATUSES[d["status"]], ""
+    else:
+        tag_text, tag_cls = STATE_TAGS.get(f.get("decision_state"), ("", None))
+    tag = f"<span class='tag {tag_cls}'>{tag_text}</span>" if tag_text else ""
+    search = f"{f['title']} {f['detail']} {f.get('package') or ''}".lower()
+    return (f"<details class='fx' id='{_anchor(f)}' data-sev='{sev}' data-rank='{rank}' "
+            f"data-title='{escape(f['title'].lower())}' data-pkg='{escape(f.get('package') or '')}' "
+            f"data-search='{escape(search)}'>"
+            f"<summary><span class='chip s-{key}'>{label}</span><b>{escape(f['title'])}</b>{tag}</summary>"
+            f"<div class='fbody'><span class='a'>{escape(f['detail'])}<br>→ {escape(f['action'])}</span>"
+            f"{_fix_hint(serial, f, all_findings)}{_decision_html(f)}{form}</div></details>")
+
+
+def _toolbar(findings: list[dict]) -> str:
+    counts = {k: 0 for k in ("crit", "high", "mid", "low", "info")}
+    for f in findings:
+        counts[SEV_KEY.get(f["severity"], "info")] += 1
+    names = {"crit": "Kritisch", "high": "Hoch", "mid": "Mittel", "low": "Niedrig", "info": "Info"}
+    chips = "".join(f"<button type='button' class='chip s-{k if k != 'info' else 'ok'}' data-sev-toggle='{k}' "
+                    f"aria-pressed='true'>{names[k]} {n}</button>" for k, n in counts.items() if n)
+    return ("<div class='toolbar js-only' role='group' aria-label='Befunde filtern und sortieren'>"
+            f"<div class='sevs'>{chips}</div>"
+            "<input id='f-search' type='search' placeholder='Suchen: App oder Befund' aria-label='Befunde durchsuchen'>"
+            "<select id='f-sort' aria-label='Sortierung'><option value='rank'>Nach Schwere</option>"
+            "<option value='title'>Nach Titel</option><option value='pkg'>Nach App</option></select>"
+            "<button type='button' class='btn' data-expand='open'>Alle auf</button>"
+            "<button type='button' class='btn' data-expand='close'>Alle zu</button>"
+            "<span id='f-count' class='muted small' aria-live='polite'></span></div>")
 
 
 def _fix_hint(serial: str, f: dict, all_findings: list[dict]) -> str:
@@ -288,11 +317,15 @@ def render_device(serial: str, scans: list[dict], devices: dict, now: datetime |
     w = _worst(last["counting"])
     active = [f for f in last["triaged"] if f["decision_state"] != "suppressed"]
     hidden = [f for f in last["triaged"] if f["decision_state"] == "suppressed"]
-    findings = ("".join(_finding_html(serial, f, token, last["findings"]) for f in active)
-                or "<p class='muted' style='margin:0'>Keine offenen Befunde.</p>")
+    rank = {id(f): i for i, f in enumerate(last["triaged"])}
+    findings = (_toolbar(last["triaged"]) + "<div data-findings>"
+                + ("".join(_finding_html(serial, f, token, last["findings"], rank[id(f)]) for f in active)
+                   or "<p class='muted' style='margin:0'>Keine offenen Befunde.</p>") + "</div>")
     if hidden:
         findings += (f"<details class='triaged'><summary>Eingeordnet ({len(hidden)}), zählen nicht zur Ampel</summary>"
-                     + "".join(_finding_html(serial, f, token, last["findings"]) for f in hidden) + "</details>")
+                     "<div data-findings>"
+                     + "".join(_finding_html(serial, f, token, last["findings"], rank[id(f)]) for f in hidden)
+                     + "</div></details>")
     history = "".join(
         f"<tr><td class='num'>{escape(s['meta']['started'][:16].replace('T', ' '))} UTC</td>"
         f"<td>{_chips(s['findings'])}</td><td class='small'>{_change_line(s['diff'])}</td>"
@@ -310,7 +343,7 @@ def render_device(serial: str, scans: list[dict], devices: dict, now: datetime |
             f"<div class='panel'><h2>Seit letztem Scan</h2>{diff}</div>"
             f"<div class='panel'><h2>Befunde</h2><p class='muted small' style='margin:0 0 6px'>Einordnen ändert nichts "
             f"am Handy, nur wie FamCheck den Befund zählt. „Bekannt“ gilt, bis sich der Befund verändert, "
-            f"„Erledigt“ bis zum nächsten Scan.</p>{findings}</div>"
+            f"„Erledigt“ bis zum nächsten Scan. Klick auf einen Befund zeigt Details.</p>{findings}</div>"
             f"{_uploads_html(last['data'])}"
             f"<div class='panel'><h2>Alle Scans</h2><p class='muted small' style='margin:0 0 6px'>Ohne Einordnung, "
             f"so wie gescannt.</p><div class='scroll'><table><tr><th>Zeit</th><th>Befunde</th>"
@@ -319,6 +352,21 @@ def render_device(serial: str, scans: list[dict], devices: dict, now: datetime |
 
 
 COOKIE = "famcheck_session"
+APP_JS = Path(__file__).parent / "static" / "app.js"
+
+
+def data_version(cases_root: Path) -> str:
+    """Changes whenever a scan finishes or a decision is stored; the page polls it for live updates."""
+    h = hashlib.sha256()
+    if cases_root.is_dir():
+        for d in sorted(cases_root.iterdir()):
+            f = d / "findings.json"
+            if f.is_file():
+                h.update(f"{d.name}:{f.stat().st_mtime_ns}\n".encode())
+        dec = cases_root / "decisions.json"
+        if dec.is_file():
+            h.update(f"decisions:{dec.stat().st_mtime_ns}".encode())
+    return h.hexdigest()[:16]
 
 LOCKED_PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>FamCheck – Anmeldung nötig</title>
@@ -345,7 +393,9 @@ def make_handler(cases_root: Path, port: int):
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")  # always the current state, never a stale page
             # frame-ancestors/X-Frame-Options: no foreign page may embed the dashboard (clickjacking)
+            # scripts only as files from this server (no inline code), requests only back to this server
             self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; "
+                             "script-src 'self'; connect-src 'self'; "
                              "form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("X-Content-Type-Options", "nosniff")
@@ -380,6 +430,11 @@ def make_handler(cases_root: Path, port: int):
                 return
             if not self._logged_in():
                 return self._send(401, LOCKED_PAGE.replace("%CSS%", CSS))
+
+            if path == "/static/app.js":
+                return self._send(200, APP_JS.read_text(encoding="utf-8"), "text/javascript; charset=utf-8")
+            if path == "/api/version":
+                return self._send(200, json.dumps({"version": data_version(cases_root)}), "application/json")
 
             devices = load_cases(cases_root)
 

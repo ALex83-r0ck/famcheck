@@ -117,6 +117,40 @@ class SecurityTest(unittest.TestCase):
         # a new dashboard start makes old links worthless
         self.assertNotEqual(make_handler(cases, port).login_url, login_url)
 
+    def test_script_and_live_endpoint(self):
+        """JS only as own file (CSP script-src 'self'), version endpoint behind login and changes with data."""
+        cases = self.root / "cases"
+        with mock.patch("builtins.print"):
+            scan_device("SAUBER01", "Handy", cases)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), None)
+        port = server.server_address[1]
+        server.RequestHandlerClass = make_handler(cases, port)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{port}"
+        try:
+            for path in ("/api/version", "/static/app.js"):
+                with self.assertRaises(urllib.error.HTTPError) as ctx:
+                    urllib.request.urlopen(base + path)
+                self.assertEqual(ctx.exception.code, 401, path)
+            opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
+            page = opener.open(server.RequestHandlerClass.login_url)
+            csp = page.headers["Content-Security-Policy"]
+            directives = dict(d.strip().split(" ", 1) for d in csp.split(";"))
+            self.assertEqual(directives["script-src"], "'self'")  # no 'unsafe-inline', no foreign hosts
+            html = page.read().decode()
+            self.assertIn("<script src='/static/app.js' defer></script>", html)
+            self.assertNotRegex(html, r"<script>(?!</script>)")  # no inline code
+            js = opener.open(base + "/static/app.js")
+            self.assertTrue(js.headers["Content-Type"].startswith("text/javascript"))
+            v1 = json.loads(opener.open(base + "/api/version").read())["version"]
+            with mock.patch("builtins.print"):
+                scan_device("SAUBER01", "Handy", cases)
+            v2 = json.loads(opener.open(base + "/api/version").read())["version"]
+            self.assertNotEqual(v1, v2)
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_huge_apk_is_not_copied(self):
         adb = RecordingAdb("INFIZIERT01", self.root / "case")
         with mock.patch.dict(os.environ, {"FAKE_ADB_HUGE": "1"}):
