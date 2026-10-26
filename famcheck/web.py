@@ -329,8 +329,12 @@ def make_handler(cases_root: Path, port: int):
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")  # always the current state, never a stale page
-            self.send_header("Content-Security-Policy",
-                             "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'")
+            # frame-ancestors/X-Frame-Options: no foreign page may embed the dashboard (clickjacking)
+            self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; "
+                             "form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
             self.end_headers()
             self.wfile.write(data)
 
@@ -367,7 +371,12 @@ def make_handler(cases_root: Path, port: int):
                 return self._send(403, "Fremde Herkunft", "text/plain")
             if unquote(self.path.split("?")[0]) != "/decide":
                 return self._send(404, "Nicht gefunden", "text/plain")
-            length = int(self.headers.get("Content-Length") or 0)
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = -1
+            if length < 0:
+                return self._send(400, "Ungültige Anfrage", "text/plain")
             if length > 8192:
                 return self._send(413, "Zu groß", "text/plain")
             form = {k: v[0] for k, v in parse_qs(self.rfile.read(length).decode("utf-8", "replace")).items()}

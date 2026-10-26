@@ -6,6 +6,7 @@ FAKE_ADB_NEWAPP=1 adds an extra sideloaded app and a second Google account to SA
 FAKE_ADB_STATE=<file.json> makes it stateful: setting writes are remembered and every writing
 command is logged under "writes", so tests can check exactly what was changed on the "phone".
 FAKE_ADB_LOCKED=1 reports a locked screen.
+FAKE_ADB_HUGE=1 reports every APK as ~1 TB (size check before pulling).
 FAKE_ADB_CRLF=1 ends lines with \r\n, like Windows and old adb shells.
 """
 import json
@@ -86,6 +87,8 @@ elif cmd == "dumpsys device_policy":
     print("  Enabled Device Admins (User 0, provisioningState: 0):")
     if bad: print("    com.systemservice/com.systemservice.AdminReceiver:\n      uid=10250")
     print("    com.google.android.gms/.mdm.receivers.MdmDeviceAdminReceiver:\n      uid=10120")
+elif cmd.startswith("stat -c %s "):
+    print("999999999999" if os.environ.get("FAKE_ADB_HUGE") == "1" else "4096")
 elif cmd.startswith("pm path "):
     pkg = cmd.split()[-1]
     print(f"package:/data/app/~~Xy12==/{pkg}-AbC==/base.apk")

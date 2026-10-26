@@ -11,6 +11,7 @@ import zipfile
 from pathlib import Path
 
 APK_SIG_MAGIC = b"APK Sig Block 42"
+MAX_SIG_FILE = 1024 * 1024
 SCHEME_IDS = (0x1B93AD61, 0xF05368C0, 0x7109871A)  # v3.1, v3, v2 (preferred order)
 
 
@@ -100,6 +101,8 @@ def signing_cert(path: Path) -> bytes | None:
         for name in zf.namelist():
             upper = name.upper()
             if upper.startswith("META-INF/") and upper.endswith((".RSA", ".DSA", ".EC")):
+                if zf.getinfo(name).file_size > MAX_SIG_FILE:  # a real one is a few KB; refuse zip bombs
+                    raise ApkError("Signaturdatei unplausibel groß")
                 return _pkcs7_cert(zf.read(name))
     return None
 
