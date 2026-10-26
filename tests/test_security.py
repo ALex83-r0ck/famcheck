@@ -151,6 +151,19 @@ class SecurityTest(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_port_cannot_be_shared(self):
+        """On Windows SO_REUSEADDR let a second process bind the dashboard port and receive the login link."""
+        from famcheck.web import create_server
+        first = create_server(self.root, 0)
+        port = first.server_address[1]
+        try:
+            with self.assertRaises(SystemExit) as ctx:
+                create_server(self.root, port)
+            self.assertIn("schon belegt", str(ctx.exception))
+            self.assertIn("netstat -ano | findstr", str(ctx.exception))
+        finally:
+            first.server_close()
+
     def test_huge_apk_is_not_copied(self):
         adb = RecordingAdb("INFIZIERT01", self.root / "case")
         with mock.patch.dict(os.environ, {"FAKE_ADB_HUGE": "1"}):
