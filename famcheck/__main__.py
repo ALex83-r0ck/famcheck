@@ -204,6 +204,9 @@ def main():
     p.set_defaults(func=cmd_serve)
 
     args = parser.parse_args()
+    for stream in (sys.stdout, sys.stderr):  # redirected output on Windows must not crash on "→" or "⚠"
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     try:
         args.func(args)
     except AdbError as e:

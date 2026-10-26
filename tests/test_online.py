@@ -53,7 +53,7 @@ class MalwareBazaarTest(unittest.TestCase):
                                      FAMCHECK_MB_URL=f"http://127.0.0.1:{server.server_address[1]}/")
                 self.assertEqual(proc.returncode, 0, proc.stderr)
                 case = next(Path(tmp).iterdir())
-                findings = json.loads((case / "findings.json").read_text())["findings"]
+                findings = json.loads((case / "findings.json").read_text(encoding="utf-8"))["findings"]
                 caselog = (case / "caselog.txt").read_text(encoding="utf-8")
         finally:
             server.shutdown()

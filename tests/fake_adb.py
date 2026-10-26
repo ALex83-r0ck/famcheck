@@ -35,7 +35,7 @@ if a[2:3] == ["pull"]:
 serial, cmd = a[1], a[3]
 bad = serial == "INFIZIERT01"
 STATE_FILE = os.environ.get("FAKE_ADB_STATE")
-state = json.loads(Path(STATE_FILE).read_text()) if STATE_FILE and Path(STATE_FILE).exists() else {}
+state = json.loads(Path(STATE_FILE).read_text(encoding="utf-8")) if STATE_FILE and Path(STATE_FILE).exists() else {}
 WRITES = ("settings put ", "settings delete ", "appops set ", "pm revoke ", "pm grant ", "pm disable-user ",
           "pm enable ", "cmd deviceidle whitelist ", "cmd notification ", "pm uninstall")
 if any(cmd.startswith(w) for w in WRITES):
