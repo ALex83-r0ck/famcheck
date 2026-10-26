@@ -18,7 +18,7 @@ from pathlib import Path
 from . import decisions
 import glob
 
-from .adb import RecordingAdb, is_locked, safe_serial
+from .adb import RecordingAdb, is_locked, new_case_dir, safe_serial
 from .analyze import SENSITIVE
 from .collect import _parse_dumpsys_package
 
@@ -268,7 +268,7 @@ def run_fix(serial: str, scan_dir: Path, cases_root: Path, dry_run: bool = False
 
     started = datetime.now(timezone.utc)
     safe_label = re.sub(r"[^\w-]+", "_", label)
-    fix_dir = cases_root / f"{started:%Y%m%d-%H%M%S}_fix_{safe_label}_{safe_serial(serial)}"
+    fix_dir = new_case_dir(cases_root, f"{started:%Y%m%d-%H%M%S}_fix_{safe_label}_{safe_serial(serial)}")
     adb = RecordingAdb(serial, fix_dir)
     print_fn(f"\nFamCheck fix für {label} ({serial}), Grundlage: Scan vom {meta['started'][:16].replace('T', ' ')} UTC")
     print_fn("Lese den aktuellen Zustand des Handys ...")
@@ -347,7 +347,7 @@ def run_undo(fix_dir: Path, cases_root: Path, input_fn=input, print_fn=print) ->
         print_fn("Bitte das Handy entsperren und den Befehl erneut starten.")
         return None
     started = datetime.now(timezone.utc)
-    undo_dir = cases_root / f"{started:%Y%m%d-%H%M%S}_undo_{safe_serial(serial)}"
+    undo_dir = new_case_dir(cases_root, f"{started:%Y%m%d-%H%M%S}_undo_{safe_serial(serial)}")
     adb = RecordingAdb(serial, undo_dir)
     results = []
     for r in reversed(todo):  # undo in reverse order

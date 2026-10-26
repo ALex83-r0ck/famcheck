@@ -82,6 +82,19 @@ def safe_serial(serial: str) -> str:
     return cleaned[:64] or "unbekannt"
 
 
+def new_case_dir(parent: Path, name: str) -> Path:
+    """Creates a fresh case folder. Two runs in the same second (fast machine, two quick scans) would get
+    the same timestamp name; then "-2", "-3", ... is appended instead of failing."""
+    for n in range(1, 1000):
+        path = parent / (name if n == 1 else f"{name}-{n}")
+        try:
+            path.mkdir(parents=True)
+            return path
+        except FileExistsError:
+            continue
+    raise FileExistsError(f"Kein freier Ordnername für {name}")
+
+
 def adb_command() -> list[str]:
     """The adb call as argument list. A FAMCHECK_ADB ending in .py (the test double) runs with this Python,
     because Windows cannot start .py files directly."""
