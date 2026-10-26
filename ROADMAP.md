@@ -11,6 +11,8 @@
   App-Dateien aus fremder Quelle, optional MalwareBazaar, Messenger-Mods, VPN, Privates DNS,
   Play Protect
 - Hinweis in Dashboard und CLI, wenn die Indikatorliste fehlt oder älter als 30 Tage ist
+- Befunde im Dashboard einordnen (Bekannt / Erledigt / Beobachten)
+- Befunde am Handy beheben (`fix`): nur umkehrbar, mit Rückfrage, Undo, nichts bei Stalkerware
 
 ## Als Nächstes
 

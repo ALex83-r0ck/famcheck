@@ -123,6 +123,29 @@ def cmd_watch(args):
     watch(Path(args.cases), None if args.no_dashboard else args.port, scan)
 
 
+def cmd_fix(args):
+    from . import fix
+    cases = Path(args.cases)
+    if args.undo:
+        fix.run_undo(Path(args.undo), cases)
+        return
+    devices = [d for d in list_devices() if d["state"] == "device"]
+    if args.serial:
+        devices = [d for d in devices if d["serial"] == args.serial]
+    if len(devices) != 1:
+        sys.exit("Genau ein angeschlossenes, freigegebenes Handy nötig (oder --serial angeben)."
+                 if devices else "Kein freigegebenes Handy gefunden. Anstecken, entsperren, USB-Debugging zulassen.")
+    serial = devices[0]["serial"]
+    scan_dir = fix.latest_scan(cases, serial)
+    if not scan_dir:
+        sys.exit(f"Für {serial} gibt es noch keinen Scan. Erst: python -m famcheck scan")
+    started = json.loads((scan_dir / "findings.json").read_text(encoding="utf-8"))["meta"]["started"]
+    age = (datetime.now(timezone.utc) - datetime.fromisoformat(started)).days
+    if age >= 1:
+        print(f"! Der letzte Scan ist {age} Tag(e) alt. Empfehlung: erst neu scannen, damit die Liste aktuell ist.")
+    fix.run_fix(serial, scan_dir, cases, dry_run=args.dry_run)
+
+
 def cmd_serve(args):
     from .web import serve
     serve(Path(args.cases), args.port)
@@ -167,6 +190,13 @@ def main():
     p.add_argument("--no-dashboard", action="store_true", help="Kein Dashboard/Browser starten")
     _scan_options(p)
     p.set_defaults(func=cmd_watch)
+
+    p = sub.add_parser("fix", help="Befunde am Handy beheben (mit Rückfrage, umkehrbar)")
+    p.add_argument("--serial", help="Nur dieses Gerät")
+    p.add_argument("--cases", default="cases", help="Ordner mit Scan-Ergebnissen")
+    p.add_argument("--dry-run", action="store_true", help="Nur zeigen, was passieren würde")
+    p.add_argument("--undo", metavar="FIX_ORDNER", help="Einen früheren fix-Durchlauf rückgängig machen")
+    p.set_defaults(func=cmd_fix)
 
     p = sub.add_parser("serve", help="Monitoring-Dashboard auf localhost starten")
     p.add_argument("--cases", default="cases", help="Ordner mit Scan-Ergebnissen")
