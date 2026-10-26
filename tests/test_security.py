@@ -8,6 +8,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import urllib.error
 import urllib.request
 import zipfile
 from http.server import ThreadingHTTPServer
@@ -53,19 +54,68 @@ class SecurityTest(unittest.TestCase):
         port = server.server_address[1]
         server.RequestHandlerClass = make_handler(self.root, port)
         threading.Thread(target=server.serve_forever, daemon=True).start()
+        key = server.RequestHandlerClass.login_url.split("key=")[1]
         try:
-            headers = urllib.request.urlopen(f"http://127.0.0.1:{port}/").headers
+            req = urllib.request.Request(f"http://127.0.0.1:{port}/", headers={"Cookie": f"famcheck_session={key}"})
+            headers = urllib.request.urlopen(req).headers
             self.assertEqual(headers["X-Frame-Options"], "DENY")
             self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
 
             # negative Content-Length used to hang the request
             s = socket.create_connection(("127.0.0.1", port), timeout=5)
-            s.sendall(f"POST /decide HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: -1\r\n\r\n".encode())
+            s.sendall(f"POST /decide HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nCookie: famcheck_session={key}\r\n"
+                      "Content-Length: -1\r\n\r\n".encode())
             self.assertIn(b" 400 ", s.recv(100))
             s.close()
         finally:
             server.shutdown()
             server.server_close()
+
+    def test_dashboard_needs_the_login_link(self):
+        """Other accounts/programs on the same PC must not read the family's data."""
+        cases = self.root / "cases"
+        with mock.patch("builtins.print"):
+            scan_device("SAUBER01", "Handy", cases)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), None)
+        port = server.server_address[1]
+        server.RequestHandlerClass = make_handler(cases, port)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{port}"
+        login_url = server.RequestHandlerClass.login_url
+        try:
+            for path in ("/", "/verlauf", "/device/SAUBER01", "/report/" + next(cases.iterdir()).name):
+                with self.assertRaises(urllib.error.HTTPError) as ctx:
+                    urllib.request.urlopen(base + path)
+                self.assertEqual(ctx.exception.code, 401, path)
+                self.assertNotIn("SAUBER01", ctx.exception.read().decode())
+            req = urllib.request.Request(base + "/decide", data=b"x=1", headers={"Origin": base})
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                urllib.request.urlopen(req)
+            self.assertEqual(ctx.exception.code, 401)
+
+            with self.assertRaises(urllib.error.HTTPError) as ctx:  # wrong key
+                urllib.request.urlopen(base + "/login?key=geraten")
+            self.assertEqual(ctx.exception.code, 403)
+
+            class Keep(urllib.request.HTTPRedirectHandler):
+                def redirect_request(self, *a, **k):
+                    return None
+            with self.assertRaises(urllib.error.HTTPError) as ctx:  # 303 is not followed here
+                urllib.request.build_opener(Keep).open(login_url)
+            cookie = ctx.exception.headers["Set-Cookie"]
+            self.assertEqual(ctx.exception.code, 303)
+            self.assertEqual(ctx.exception.headers["Location"], "/")  # key leaves the address bar
+            self.assertIn("HttpOnly", cookie)
+            self.assertIn("SameSite=Strict", cookie)
+
+            opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
+            self.assertIn("SAUBER01", opener.open(login_url).read().decode())
+        finally:
+            server.shutdown()
+            server.server_close()
+
+        # a new dashboard start makes old links worthless
+        self.assertNotEqual(make_handler(cases, port).login_url, login_url)
 
     def test_huge_apk_is_not_copied(self):
         adb = RecordingAdb("INFIZIERT01", self.root / "case")

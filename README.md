@@ -201,8 +201,12 @@ FamCheck verarbeitet Daten von Geräten, die manipuliert sein könnten. Deshalb:
   `fixlog.json` wird abgelehnt.
 - `tests/test_security.py` spielt diese Angriffe nach.
 
-**Noch offen:** Das Dashboard hat keine Anmeldung. Jedes andere Konto und jedes Programm auf demselben PC
-kann es lesen. Die Ordner `cases/` liegen unverschlüsselt auf der Festplatte (BitLocker empfohlen).
+- **Anmeldung per Link:** `serve` und `watch` öffnen das Dashboard über einen Link mit Schlüssel, der bei
+  jedem Start neu erzeugt wird, und setzen damit ein Cookie (`HttpOnly`, `SameSite=Strict`). Ohne Cookie
+  zeigt das Dashboard nur einen Hinweis, auch anderen Windows-Konten auf demselben PC nicht.
+  Den Link zeigt das Terminal an, falls sich der Browser nicht von selbst öffnet.
+
+**Noch offen:** Die Ordner `cases/` liegen unverschlüsselt auf der Festplatte (BitLocker empfohlen).
 
 ## Grenzen
 
