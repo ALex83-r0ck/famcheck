@@ -189,6 +189,21 @@ Optional zusätzlich online prüfen, nur die Hashes werden gesendet:
 
 Jede gesendete Prüfsumme steht im `caselog.txt`.
 
+## Sicherheit von FamCheck selbst
+
+FamCheck verarbeitet Daten von Geräten, die manipuliert sein könnten. Deshalb:
+
+- **Gerätedaten gelten als feindlich:** Seriennummern werden vor der Verwendung in Ordnernamen bereinigt,
+  alles Angezeigte wird escaped, APKs werden vor dem Kopieren auf ihre Größe geprüft und nie aufbewahrt.
+- **Dashboard:** nur `127.0.0.1`, Host- und Origin-Prüfung (gegen DNS-Rebinding), Token gegen gefälschte
+  Formulare, darf nicht in fremde Seiten eingebettet werden (Clickjacking), kein JavaScript, kein Cache.
+- **`fix --undo`** führt nur die Befehlsarten aus, die `fix` selbst schreibt. Eine manipulierte
+  `fixlog.json` wird abgelehnt.
+- `tests/test_security.py` spielt diese Angriffe nach.
+
+**Noch offen:** Das Dashboard hat keine Anmeldung. Jedes andere Konto und jedes Programm auf demselben PC
+kann es lesen. Die Ordner `cases/` liegen unverschlüsselt auf der Festplatte (BitLocker empfohlen).
+
 ## Grenzen
 
 - Das sind Heuristiken: „Kein Befund“ heißt nicht „garantiert sauber“. Staatstrojaner wie Pegasus

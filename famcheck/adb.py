@@ -4,6 +4,7 @@ import csv
 import hashlib
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -72,6 +73,13 @@ def install_platform_tools(zip_source: str | None = None) -> Path:
     if sys.platform != "win32":
         adb.chmod(0o755)
     return adb
+
+
+def safe_serial(serial: str) -> str:
+    """Device serial as a safe file-name part. The serial comes from the device itself, so a manipulated
+    phone could send '../../' or wildcard characters; only letters, digits, '.', '_' and '-' survive."""
+    cleaned = re.sub(r"[^A-Za-z0-9._-]", "_", serial).lstrip(".")
+    return cleaned[:64] or "unbekannt"
 
 
 def adb_command() -> list[str]:
@@ -171,6 +179,9 @@ class RecordingAdb:
         """
         from .apk import fingerprints
 
+        size = self.shell(f"stat -c %s {shlex.quote(remote)}").strip()
+        if size.isdigit() and int(size) > max_bytes:  # never copy what is too big (disk filling device)
+            return {"path": remote, "error": f"zu groß ({int(size) // 1048576} MB), nicht kopiert"}
         self._counter += 1
         result: dict = {"path": remote}
         rc, digest = -1, ""

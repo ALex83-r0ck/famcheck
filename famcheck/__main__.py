@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import __version__
-from .adb import AdbError, RecordingAdb, install_platform_tools, list_devices, tools_dir
+from .adb import AdbError, RecordingAdb, install_platform_tools, list_devices, safe_serial, tools_dir
 from . import iocs, online
 from .analyze import ORDER, analyze
 from .collect import collect
@@ -25,7 +25,7 @@ def scan_device(serial: str, label: str, cases_root: Path, check_apks: bool = Tr
                 malwarebazaar: bool = False) -> Path:
     started = datetime.now(timezone.utc)
     safe_label = re.sub(r"[^\w-]+", "_", label)
-    case_dir = cases_root / f"{started:%Y%m%d-%H%M%S}_{safe_label}_{serial}"
+    case_dir = cases_root / f"{started:%Y%m%d-%H%M%S}_{safe_label}_{safe_serial(serial)}"
     case_dir.mkdir(parents=True)
     log_file = open(case_dir / "caselog.txt", "a", encoding="utf-8")
 

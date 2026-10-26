@@ -16,7 +16,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import decisions
-from .adb import RecordingAdb, is_locked
+import glob
+
+from .adb import RecordingAdb, is_locked, safe_serial
 from .analyze import SENSITIVE
 from .collect import _parse_dumpsys_package
 
@@ -232,6 +234,15 @@ def _action_for(adb: RecordingAdb, f: dict, data: dict):
     return None
 
 
+# Undo commands come from fixlog.json on disk; only these kinds (the ones fix writes) are executed.
+UNDO_ALLOWED = re.compile(
+    r"^(settings (put|delete) (global|secure) [\w.]+( \S+)?"
+    r"|appops set \S+ [A-Z_]+ \w+"
+    r"|pm (grant \S+ [\w.]+|enable --user 0 \S+)"
+    r"|cmd deviceidle whitelist \+[\w.]+"
+    r"|cmd notification allow_listener \S+)$")
+
+
 def _ask(prompt: str, input_fn) -> bool:
     return input_fn(prompt).strip().lower() in ("j", "ja", "y", "yes")
 
@@ -257,7 +268,7 @@ def run_fix(serial: str, scan_dir: Path, cases_root: Path, dry_run: bool = False
 
     started = datetime.now(timezone.utc)
     safe_label = re.sub(r"[^\w-]+", "_", label)
-    fix_dir = cases_root / f"{started:%Y%m%d-%H%M%S}_fix_{safe_label}_{serial}"
+    fix_dir = cases_root / f"{started:%Y%m%d-%H%M%S}_fix_{safe_label}_{safe_serial(serial)}"
     adb = RecordingAdb(serial, fix_dir)
     print_fn(f"\nFamCheck fix für {label} ({serial}), Grundlage: Scan vom {meta['started'][:16].replace('T', ' ')} UTC")
     print_fn("Lese den aktuellen Zustand des Handys ...")
@@ -336,7 +347,7 @@ def run_undo(fix_dir: Path, cases_root: Path, input_fn=input, print_fn=print) ->
         print_fn("Bitte das Handy entsperren und den Befehl erneut starten.")
         return None
     started = datetime.now(timezone.utc)
-    undo_dir = cases_root / f"{started:%Y%m%d-%H%M%S}_undo_{serial}"
+    undo_dir = cases_root / f"{started:%Y%m%d-%H%M%S}_undo_{safe_serial(serial)}"
     adb = RecordingAdb(serial, undo_dir)
     results = []
     for r in reversed(todo):  # undo in reverse order
@@ -344,6 +355,11 @@ def run_undo(fix_dir: Path, cases_root: Path, input_fn=input, print_fn=print) ->
         if not r["undo"]:
             print_fn(f"     Nicht automatisch umkehrbar. {r.get('warning', '')}")
             results.append({**r, "undo_status": "nicht möglich"})
+            continue
+        bad = [c for c in r["undo"] if not UNDO_ALLOWED.match(c)]
+        if bad:
+            print_fn(f"     ABGELEHNT, unerwarteter Befehl in fixlog.json (manipuliert?): {bad[0]}")
+            results.append({**r, "undo_status": "abgelehnt"})
             continue
         for c in r["undo"]:
             print_fn(f"     adb shell {c}")
@@ -362,6 +378,6 @@ def run_undo(fix_dir: Path, cases_root: Path, input_fn=input, print_fn=print) ->
 
 
 def latest_scan(cases_root: Path, serial: str) -> Path | None:
-    scans = [d for d in cases_root.glob(f"*_{serial}") if (d / "findings.json").is_file()]
+    scans = [d for d in cases_root.glob(f"*_{glob.escape(safe_serial(serial))}") if (d / "findings.json").is_file()]
     return max(scans, key=lambda d: json.loads((d / "findings.json").read_text(encoding="utf-8"))["meta"]["started"],
                default=None)
