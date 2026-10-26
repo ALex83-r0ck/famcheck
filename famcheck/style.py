@@ -135,15 +135,24 @@ def chips(findings: list[dict]) -> str:
     return " ".join(out) or "<span class='chip s-ok'>Keine Befunde</span>"
 
 
+# Special uids in Android's network statistics. -1 is the sum over all apps, not an app.
+UID_TOTAL = -1
+SPECIAL_UIDS = {0: "System (Kernel)", -4: "inzwischen deinstallierte Apps", -5: "Hotspot / Tethering"}
+
+
+def upload_name(u: dict) -> str:
+    return SPECIAL_UIDS.get(u["uid"]) or ", ".join(u["packages"])
+
+
 def uploads_html(data: dict, top: int = 8) -> str:
-    uploads = data.get("uploads")
+    uploads = [u for u in data.get("uploads") or [] if u["uid"] != UID_TOTAL]  # also cleans older scans
     if not uploads:
         return ""
     third_party = data["apps"]
     days = data.get("uploads_days")
     installed_chip = " <span class='chip s-low'>installiert</span>"
     rows = "".join(
-        f"<tr><td class='mono'>{escape(', '.join(u['packages']))}"
+        f"<tr><td class='mono'>{escape(upload_name(u))}"
         f"{installed_chip if any(p in third_party for p in u['packages']) else ''}</td>"
         f"<td class='num'>{u['tx'] / 1048576:,.1f} MB</td><td class='num'>{u['tx_bg'] / 1048576:,.1f} MB</td></tr>"
         for u in uploads[:top])
