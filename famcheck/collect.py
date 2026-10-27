@@ -269,7 +269,7 @@ def collect(adb: RecordingAdb, log, check_apks: bool = True) -> dict:
     per_uid, days = _parse_netstats(adb.shell("dumpsys netstats detail", timeout=180), time.time())
     data["uploads"] = sorted(
         ({"uid": uid, "packages": sorted(uid_names.get(uid, [f"uid {uid}"])), **v}
-         for uid, v in per_uid.items() if v["tx"] > 0),
+         for uid, v in per_uid.items() if v["tx"] > 0 and uid != -1),  # -1 = sum over all apps
         key=lambda e: e["tx"], reverse=True)
     data["uploads_days"] = days
 

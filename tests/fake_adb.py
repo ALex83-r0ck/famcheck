@@ -9,6 +9,7 @@ FAKE_ADB_LOCKED=1 reports a locked screen.
 FAKE_ADB_HUGE=1 reports every APK as ~1 TB (size check before pulling).
 FAKE_ADB_BROKEN=1 returns empty output for properties, package lists and settings (unreadable device).
 FAKE_ADB_NO_NETSTATS=1 returns no data usage statistics.
+FAKE_ADB_SDK=<n> overrides the Android API level (default 33, INFIZIERT01 31).
 FAKE_ADB_CRLF=1 ends lines with \r\n, like Windows and old adb shells.
 """
 import json
@@ -69,6 +70,7 @@ props = {"ro.product.manufacturer": "samsung" if bad else "Google",
          "ro.product.model": "SM-A525F" if bad else "Pixel 7",
          "ro.build.version.release": "12" if bad else "16",
          "ro.build.version.security_patch": "2023-03-01" if bad else "2026-10-05",
+         "ro.build.version.sdk": os.environ.get("FAKE_ADB_SDK") or ("31" if bad else "33"),
          "ro.boot.verifiedbootstate": "green", "ro.serialno": serial}
 if cmd == "dumpsys window policy":
     locked = "true" if os.environ.get("FAKE_ADB_LOCKED") == "1" else "false"
@@ -77,7 +79,7 @@ elif cmd.startswith("getprop"):
     print(props.get(cmd.split()[1], ""))
 elif cmd.startswith("settings get"):
     k = cmd.split()[-1]
-    vals = {"adb_enabled": "1", "adb_wifi_enabled": "1" if bad else "0",
+    vals = {"adb_enabled": "1", "install_non_market_apps": "1", "adb_wifi_enabled": "1" if bad else "0",
             "http_proxy": "null", "always_on_vpn_app": "null",
             "enabled_accessibility_services": "com.systemservice/com.systemservice.AccService:com.google.android.marvin.talkback/.TalkBackService" if bad else "null",
             "private_dns_mode": "hostname" if bad else "opportunistic",
@@ -138,6 +140,8 @@ elif cmd == "dumpsys netstats detail":
     rec(10200, "DEFAULT", 5 * 1024 * 1024)
     rec(10200, "DEFAULT", 3 * 1024 * 1024, tag="0xffffff01")  # tagged subset, must not count
     rec(1000, "DEFAULT", 2 * 1024 * 1024)
+    rec(0, "DEFAULT", 1024 * 1024)                    # kernel/root traffic
+    rec(-1, "DEFAULT", 900 * 1024 * 1024)             # UID_ALL: the total, not an app
     if bad: rec(10250, "DEFAULT", 320 * 1024 * 1024)
 elif cmd == "pm list packages -U":
     pk = [("android", 1000), ("com.google.android.gms", 10120), ("com.whatsapp", 10200),

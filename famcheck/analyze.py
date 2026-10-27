@@ -267,7 +267,10 @@ def analyze(data: dict, today: date | None = None) -> list[dict]:
             findings.append(_finding(
                 "INFO", f"VPN aktiv: {pkg}", "Der Datenverkehr läuft durch diese App.",
                 "Prüfen, ob die VPN-App bewusst genutzt wird.", pkg))
-    if settings.get("install_non_market_apps") == "1":
+    sdk = props.get("ro.build.version.sdk", "")
+    # Before Android 8 this was one global switch. Since Android 8 it is per app (see "Darf weitere Apps
+    # installieren") and the old value is meaningless, often "1" on perfectly normal devices.
+    if settings.get("install_non_market_apps") == "1" and sdk.isdigit() and int(sdk) < 26:
         findings.append(_finding(
             "NIEDRIG", "Installation aus unbekannten Quellen erlaubt (global)",
             "Ältere Android-Einstellung.", "Ausschalten, wenn nicht benötigt."))
