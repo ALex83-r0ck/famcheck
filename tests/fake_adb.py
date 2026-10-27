@@ -9,6 +9,8 @@ FAKE_ADB_LOCKED=1 reports a locked screen.
 FAKE_ADB_HUGE=1 reports every APK as ~1 TB (size check before pulling).
 FAKE_ADB_BROKEN=1 returns empty output for properties, package lists and settings (unreadable device).
 FAKE_ADB_NO_NETSTATS=1 returns no data usage statistics.
+FAKE_ADB_DUMP_FAIL=pkg1,pkg2 answers "dumpsys package" for these apps with an error message (seen on a real device).
+FAKE_ADB_DUMP_FLAKY=<file> answers the first "dumpsys package" with an error, later ones normally.
 FAKE_ADB_SDK=<n> overrides the Android API level (default 33, INFIZIERT01 31).
 FAKE_ADB_CRLF=1 ends lines with \r\n, like Windows and old adb shells.
 """
@@ -166,6 +168,14 @@ elif cmd.startswith("cmd package query-activities"):
     if bad or new_app: print("com.example.flashlight/.Main")
 elif cmd.startswith("dumpsys package "):
     pkg = cmd.split()[-1]
+    if pkg in os.environ.get("FAKE_ADB_DUMP_FAIL", "").split(","):
+        print("Error: Failure calling service package")
+        sys.exit(0)
+    flaky = os.environ.get("FAKE_ADB_DUMP_FLAKY")
+    if flaky and not Path(flaky).exists():  # fails once, works on the retry
+        Path(flaky).write_text("1", encoding="utf-8")
+        print("Error: Failure calling service package")
+        sys.exit(0)
     perms = {"com.whatsapp": ["android.permission.CAMERA", "android.permission.READ_CONTACTS"],
              "com.systemservice": ["android.permission.CAMERA", "android.permission.RECORD_AUDIO", "android.permission.READ_SMS", "android.permission.ACCESS_FINE_LOCATION"],
              "com.example.flashlight": ["android.permission.CAMERA", "android.permission.READ_CONTACTS"]}[pkg]

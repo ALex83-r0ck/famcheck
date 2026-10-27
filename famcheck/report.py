@@ -4,6 +4,7 @@ import json
 from html import escape
 from pathlib import Path
 
+from .analyze import SENSITIVE, app_readable
 from .style import CSS, HEADLINE, ICON, SEV_KEY, SEV_LABEL, chips, uploads_html, worst
 
 
@@ -69,13 +70,19 @@ def compute_diff(old: dict, new: dict) -> dict:
         return sum((d.get("accounts") or {}).values())
 
     owner_new = new.get("device_owner")
+    both = sorted(set(old["apps"]) & set(new["apps"]))
+    # an app whose data could not be read in one of the scans would show all its rights as "new"
+    comparable = [p for p in both if app_readable(old["apps"][p]) and app_readable(new["apps"][p])]
     return {
         "added": {p: new["apps"][p]["installer"] for p in sorted(set(new["apps"]) - set(old["apps"]))},
         "removed": sorted(set(old["apps"]) - set(new["apps"])),
+        # Only rights that let an app see or record private data; app updates add harmless ones all the time.
         "new_permissions": {
-            pkg: gained for pkg in sorted(set(old["apps"]) & set(new["apps"]))
-            if (gained := sorted(set(new["apps"][pkg]["granted"]) - set(old["apps"][pkg]["granted"])))
+            pkg: gained for pkg in comparable
+            if (gained := sorted(SENSITIVE[p] for p in set(new["apps"][pkg]["granted"]) - set(old["apps"][pkg]["granted"])
+                                 if p in SENSITIVE))
         },
+        "not_comparable": len(both) - len(comparable),
         "new_roles": {
             key: items for key in ROLE_LABELS
             if key in old and key in new and (items := sorted(set(new[key]) - set(old[key])))
@@ -100,4 +107,6 @@ def diff_scans(old_dir: Path, new_dir: Path) -> str:
         lines.append(f"Neue Konten auf dem Gerät: {d['accounts_added']}")
     if d["new_device_owner"]:
         lines.append(f"Neue Geräteverwaltung: {d['new_device_owner']}")
+    if d["not_comparable"]:
+        lines.append(f"Nicht vergleichbar (Daten in einem Scan unlesbar): {d['not_comparable']} Apps")
     return "\n".join(lines)

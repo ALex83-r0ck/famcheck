@@ -4,7 +4,7 @@ import re
 import time
 
 from .adb import RecordingAdb
-from .analyze import TRUSTED_STORES
+from .analyze import TRUSTED_STORES, app_readable
 
 # App-ops that matter for malware; read per app via "appops get".
 WATCHED_APPOPS = ["SYSTEM_ALERT_WINDOW", "REQUEST_INSTALL_PACKAGES", "MANAGE_EXTERNAL_STORAGE"]
@@ -81,6 +81,19 @@ def _parse_dumpsys_package(out: str) -> dict:
     info["granted"] = sorted(set(info["granted"]))
     info["requested"] = sorted(set(info["requested"]))
     return info
+
+
+def _read_package(adb: RecordingAdb, pkg: str) -> dict:
+    """dumpsys package for one app. A real answer always names the package; anything else is an error
+    message (seen on a real device: 39 bytes instead of 20-40 KB). Try once more, then mark it unreadable
+    instead of passing it off as "app without permissions"."""
+    for attempt in range(2):
+        out = adb.shell(f"dumpsys package {pkg}")
+        if f"Package [{pkg}]" in out:
+            return {**_parse_dumpsys_package(out), "dump_ok": True}
+        if attempt == 0:
+            time.sleep(1)
+    return {**_parse_dumpsys_package(""), "dump_ok": False, "dump_error": out.strip()[:200]}
 
 
 def _parse_device_admins(out: str) -> list[str]:
@@ -246,7 +259,7 @@ def collect(adb: RecordingAdb, log, check_apks: bool = True) -> dict:
 
     log(f"Analysiere {len(third_party)} installierte Apps ...")
     for pkg, meta in third_party.items():
-        meta.update(_parse_dumpsys_package(adb.shell(f"dumpsys package {pkg}")))
+        meta.update(_read_package(adb, pkg))
         meta["has_launcher_icon"] = pkg in launcher if launcher else None
         meta["appops"] = _parse_appops(adb.shell(f"appops get {pkg}"))
     data["apps"] = third_party
@@ -281,6 +294,7 @@ def collect(adb: RecordingAdb, log, check_apks: bool = True) -> dict:
         "packages": len(all_packages),
         "apps": len(third_party),
         "apps_with_permissions": sum(1 for m in third_party.values() if m["requested"] or m["granted"]),
+        "apps_unreadable": sorted(p for p, m in third_party.items() if not app_readable(m)),
         "launcher": data["launcher_query_ok"],
         "netstats": bool(per_uid),
         "lock_settings": data["lock_credential"] is not None,
