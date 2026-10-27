@@ -72,6 +72,17 @@ REPORT_GAP = ("Das ist kein Hinweis auf Spyware: FamCheck konnte diesen Teil auf
               "Ist die Lücke bei diesem Modell normal, als „Bekannt“ einordnen.")
 
 
+UNREADABLE_SHARE = 0.25  # from this share of unreadable apps on, the scan is not usable
+
+
+def app_readable(app: dict) -> bool:
+    """False when the device answered 'dumpsys package' with an error instead of the app's data.
+    Scans from before 'dump_ok' existed: an app without version and without any permission was not read."""
+    if "dump_ok" in app:
+        return app["dump_ok"]
+    return bool(app.get("version") or app.get("requested") or app.get("granted"))
+
+
 def coverage_findings(data: dict) -> list[dict]:
     """Turns gaps in what could be read into findings. Scans made before this check existed have no
     'coverage' and get none."""
@@ -90,7 +101,18 @@ def coverage_findings(data: dict) -> list[dict]:
         gap("HOCH", "Scan unvollständig: Paketliste fehlt oder ist zu kurz",
             f"Nur {cov['packages']} Pakete gelesen, ein Android-Gerät hat normalerweise mehrere Hundert. "
             "Ohne Paketliste greift keine Prüfung auf bekannte Spyware.")
-    if cov["apps"] and not cov["apps_with_permissions"]:
+    apps = data.get("apps", {})
+    unreadable = sorted(p for p, a in apps.items() if not app_readable(a))
+    if unreadable:
+        error = next((apps[p]["dump_error"] for p in unreadable if apps[p].get("dump_error")), "")
+        names = ", ".join(unreadable[:8]) + (f" und {len(unreadable) - 8} weitere" if len(unreadable) > 8 else "")
+        gap("HOCH" if len(unreadable) >= UNREADABLE_SHARE * len(apps) else "MITTEL",
+            f"Scan unvollständig: Daten von {len(unreadable)} von {len(apps)} Apps nicht lesbar",
+            f"Das Handy hat statt der App-Daten eine Fehlermeldung geliefert"
+            + (f" („{error}“)" if error else "") + f": {names}. Rechte, Version und Installationsdatum dieser "
+            "Apps fehlen, ihr Vergleich mit dem letzten Scan wird übersprungen. Handy entsperrt lassen, "
+            "Kabel prüfen, neu scannen.")
+    elif cov["apps"] and not cov["apps_with_permissions"]:
         gap("HOCH", "Scan unvollständig: App-Rechte nicht lesbar",
             f"Bei keiner der {cov['apps']} Apps ließen sich Rechte auslesen. Prüfungen auf Kamera, Mikrofon, "
             "Standort usw. fallen damit aus.")

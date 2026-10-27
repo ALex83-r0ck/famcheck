@@ -202,7 +202,7 @@ def _diff_html(diff: dict) -> str:
             f"<span class='muted'>neu installiert über {escape(i or 'unbekannt (APK/ADB)')}</span></div>"
             for p, i in diff["added"].items()]
     rows += [f"<div class='change'><span class='op op-perm'>!</span><span class='mono'>{escape(p)}</span>"
-             f"<span class='muted'>neue Rechte: {escape(', '.join(g))}</span></div>"
+             f"<span class='muted'>neue heikle Rechte: {escape(', '.join(g))}</span></div>"
              for p, g in diff["new_permissions"].items()]
     rows += [f"<div class='change'><span class='op op-role'>!</span><span class='mono'>{escape(', '.join(v))}</span>"
              f"<span class='muted'>neu bei {ROLE_LABELS[k]}</span></div>" for k, v in diff["new_roles"].items()]
@@ -214,6 +214,9 @@ def _diff_html(diff: dict) -> str:
                     f"<span class='muted'>verwaltet jetzt das Gerät</span></div>")
     rows += [f"<div class='change'><span class='op op-rm'>−</span><span class='mono'>{escape(p)}</span>"
              f"<span class='muted'>entfernt</span></div>" for p in diff["removed"]]
+    if diff.get("not_comparable"):
+        rows.append(f"<div class='change'><span class='op'>?</span><b>{diff['not_comparable']} Apps nicht vergleichbar</b>"
+                    f"<span class='muted'>ihre Daten waren in einem der beiden Scans nicht lesbar</span></div>")
     return "".join(rows) or "<p class='muted' style='margin:0'>Keine Änderungen seit dem vorherigen Scan.</p>"
 
 
