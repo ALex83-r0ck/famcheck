@@ -230,6 +230,7 @@
     document.title = doc.title;
     applyFilters();
     applyAppFilter();
+    renderLive();
     window.scrollTo(0, y);
     return true;
   }
@@ -319,6 +320,60 @@
     } catch (e) { /* still offline */ }
   }
 
+  // ---- live box: what the running scan is doing (read only, text via textContent) -------------------
+  const live = { snap: null, shownId: null, closedId: null, first: true };
+  const RECENT_MS = 20000;  // a scan that ended this shortly before the page loaded is still shown
+
+  function renderLive() {
+    const box = document.getElementById("live");
+    const s = live.snap;
+    if (!box || !s) return;
+    // finished scans from before this page was opened are not shown, nor the one the user closed
+    const show = s.running || (s.id === live.shownId && s.id !== live.closedId);
+    box.hidden = !show;
+    if (!show) return;
+    live.shownId = s.id;
+    box.className = "panel live" + (s.running ? " running" : s.error ? " failed" : " done");
+    box.replaceChildren();
+    const head = document.createElement("div");
+    head.className = "live-head";
+    const title = document.createElement("b");
+    title.textContent = (s.running ? "Scan läuft: " : s.error ? "Scan abgebrochen: " : "Scan fertig: ") + (s.label || "");
+    head.appendChild(title);
+    if (!s.running) {
+      if (!s.error && s.serial) {
+        const a = document.createElement("a");
+        a.href = "/device/" + encodeURIComponent(s.serial);
+        a.textContent = "Ergebnis ansehen";
+        head.appendChild(a);
+      }
+      const close = document.createElement("button");
+      close.type = "button";
+      close.textContent = "Schließen";
+      close.addEventListener("click", () => { live.closedId = s.id; renderLive(); });
+      head.appendChild(close);
+    }
+    const log = document.createElement("pre");
+    log.textContent = s.lines.join("\n") + (s.error ? "\n" + s.error : "");
+    box.append(head, log);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  async function pollLive() {
+    try {
+      const r = await fetch("/api/live", { credentials: "same-origin", cache: "no-store" });
+      if (r.ok) {
+        const s = await r.json();
+        const recent = s.finished && Date.now() - Date.parse(s.finished) < RECENT_MS;
+        if (s.running || (live.first && recent)) live.shownId = s.id;  // older finished scans stay hidden
+        live.first = false;
+        live.snap = s;
+        renderLive();
+      }
+    } catch (e) { /* the version poll reports lost connections */ }
+    if (!pollStopped) setTimeout(pollLive, live.snap && live.snap.running ? 1000 : 4000);
+  }
+
   // ---- start ----------------------------------------------------------------------------------------
   function start() {
     applyFilters();
@@ -331,6 +386,7 @@
       target.scrollIntoView({ block: "center" });
     }
     poll();
+    pollLive();
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);

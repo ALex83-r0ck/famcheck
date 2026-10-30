@@ -22,6 +22,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote
 
 from . import decisions, fix, guides, iocs
+from .live import LIVE
 from .report import ROLE_LABELS, compute_diff, install_info, render_html, source_label
 from .style import CSS, HEADLINE, ICON, SEV_KEY, SEV_LABEL, local_time, tiles
 from .style import chips as _chips
@@ -147,7 +148,8 @@ def _page(title: str, active: str, body: str, devices: dict, summary: bool = Tru
             f"<title>{escape(title)}</title><style>{CSS}</style>"
             f"<script src='/static/app.js' defer></script></head><body><main>"
             f"<div class='top'><h1>FamCheck</h1><nav class='nav'>{nav}</nav></div>"
-            f"{_banner()}{chips_row if summary else ''}{body}</main></body></html>")
+            f"{_banner()}<section id='live' class='panel live' hidden aria-live='polite'></section>"
+            f"{chips_row if summary else ''}{body}</main></body></html>")
 
 
 def _banner() -> str:
@@ -160,10 +162,12 @@ ATTENTION = ("crit", "high", "mid")  # these need a look; "low" and "ok" do not
 FEED_SCANS = 5   # how many recent scans per device feed "Was ist neu"
 FEED_ITEMS = 8
 
-START_STEPS = ("<div class='panel'><h2>Neues Handy prüfen</h2><div class='steps3'>"
-               "<div><b>1</b><code>FamCheck.bat</code> starten</div>"
-               "<div><b>2</b>Handy per USB anstecken und entsperren</div>"
-               "<div><b>3</b>Am Handy „USB-Debugging zulassen“ tippen, der Scan startet von selbst</div></div></div>")
+def _start_steps(extra: str = "") -> str:
+    return ("<div class='panel'><h2>Neues Handy prüfen</h2><div class='steps3'>"
+            "<div><b>1</b><code>FamCheck.bat</code> starten</div>"
+            "<div><b>2</b>Handy per USB anstecken und entsperren</div>"
+            "<div><b>3</b>Am Handy „USB-Debugging zulassen“ tippen, der Scan startet von selbst</div></div>"
+            f"{extra}</div>")
 
 
 def _hero(devices: dict, ordered: list, now: datetime) -> str:
@@ -246,7 +250,10 @@ def _feed(ordered: list, now: datetime) -> str:
             before = {f["title"] for f in prev["findings"]}
             items += [f"<b>{name}:</b> neuer Befund „{escape(f['title'])}“" for f in cur["findings"]
                       if f["title"] not in before and f["severity"] != "INFO"]
-            events += [(when, i) for i in items] or [(when, f"<b>{name}:</b> Scan ohne Änderungen")]
+            if items:
+                events += [(when, i) for i in items]
+            elif cur is scans[-1]:  # only the latest quiet scan, a row of them says nothing
+                events.append((when, f"<b>{name}:</b> Scan ohne Änderungen"))
     events.sort(key=lambda e: e[0], reverse=True)
     rows = "".join(f"<div><time>{escape(_short_time(when, now))}</time><span>{text}</span></div>"
                    for when, text in events[:FEED_ITEMS])
@@ -268,17 +275,53 @@ def _reminders(ordered: list, now: datetime) -> str:
     return f"<div class='panel'><h2>Erinnerungen</h2><div class='feed'>{body}</div></div>"
 
 
-def render_overview(devices: dict[str, list[dict]], now: datetime | None = None) -> str:
+def _scan_button(serial: str, label: str, token: str, back: str) -> str:
+    return (f"<form class='scan-now' method='post' action='/scan'>"
+            f"<input type='hidden' name='token' value='{escape(token)}'>"
+            f"<input type='hidden' name='serial' value='{escape(serial)}'>"
+            f"<input type='hidden' name='back' value='{escape(back)}'>"
+            f"<button>{escape(label)}</button></form>")
+
+
+def _connected_html(devices: dict, connected: list[dict] | None, token: str) -> str:
+    """Phones plugged in right now, with a scan button. None: scanning from the dashboard is not available."""
+    if connected is None or not token:
+        return ""
+    if not connected:
+        return "<p class='muted small' style='margin:12px 0 0'>Gerade ist kein Handy angeschlossen.</p>"
+    names = load_names_cached(devices)
+    rows = []
+    for d in connected:
+        name = names.get(d["serial"]) or d["model"] or d["serial"]
+        if d["state"] == "device":
+            rows.append(_scan_button(d["serial"], f"Jetzt scannen: {name}", token, "/"))
+        elif d["state"] == "unauthorized":
+            rows.append(f"<p class='small' style='margin:0'><b>{escape(name)}:</b> am Handy entsperren und "
+                        f"„USB-Debugging zulassen“ tippen.</p>")
+        else:
+            rows.append(f"<p class='small' style='margin:0'><b>{escape(name)}:</b> Status {escape(d['state'])}, "
+                        f"Kabel bzw. USB-Modus prüfen.</p>")
+    return f"<div class='connected'><b class='small'>Angeschlossen:</b>{''.join(rows)}</div>"
+
+
+def load_names_cached(devices: dict) -> dict:
+    """serial -> display name, from what load_cases already put on the scans."""
+    return {serial: scans[-1]["name"] for serial, scans in devices.items()}
+
+
+def render_overview(devices: dict[str, list[dict]], now: datetime | None = None, token: str = "",
+                    connected: list[dict] | None = None) -> str:
     """Start page: how is the family doing, what changed, what to do next."""
     now = now or datetime.now(timezone.utc)
+    steps = _start_steps(_connected_html(devices, connected, token))
     if not devices:
         body = ("<div class='panel hero'><h2>Noch kein Handy geprüft</h2><p>So geht der erste Scan, "
-                "danach erscheinen hier alle Geräte der Familie.</p></div>" + START_STEPS)
+                "danach erscheinen hier alle Geräte der Familie.</p></div>" + steps)
         return _page("FamCheck", "overview", body, devices, summary=False)
     ordered = _sorted_devices(devices)
     cards = "".join(_device_card(serial, scans, now) for serial, scans in ordered)
     body = (f"{_hero(devices, ordered, now)}<div class='two'><div class='dev-list'>{cards}</div>"
-            f"<div class='side'>{_feed(ordered, now)}{_reminders(ordered, now)}{START_STEPS}</div></div>")
+            f"<div class='side'>{_feed(ordered, now)}{_reminders(ordered, now)}{steps}</div></div>")
     return _page("FamCheck", "overview", body, devices, summary=False)
 
 
@@ -536,7 +579,7 @@ def _rename_form(serial: str, name: str, token: str) -> str:
 
 
 def render_device(serial: str, scans: list[dict], devices: dict, now: datetime | None = None,
-                  token: str = "") -> str:
+                  token: str = "", connected: list[dict] | None = None) -> str:
     now = now or datetime.now(timezone.utc)
     last = scans[-1]
     props = last["data"]["props"]
@@ -568,13 +611,15 @@ def render_device(serial: str, scans: list[dict], devices: dict, now: datetime |
                if len(scans) > 1 else "")
     diff = (_diff_html(last["diff"], scans[-2], last) if last["diff"] is not None
             else "<p class='muted' style='margin:0'>Erst ein Scan vorhanden, noch kein Vergleich möglich.</p>")
+    plugged_in = any(d["serial"] == serial and d["state"] == "device" for d in connected or [])
+    rescan = _scan_button(serial, "Jetzt neu scannen", token, f"/device/{serial}") if token and plugged_in else ""
     body = (f"<div class='panel'><p style='margin:0 0 8px'><a href='/'>← Übersicht</a></p>"
             f"<h2 style='font-size:1.3rem;margin:0'>{escape(last['name'])}</h2>"
             f"<div class='muted small'>{escape(props.get('ro.product.manufacturer', ''))} "
             f"{escape(props.get('ro.product.model', ''))} · Android {escape(props.get('ro.build.version.release', '?'))} · "
             f"Patch <span class='num'>{escape(props.get('ro.build.version.security_patch', '?'))}</span> · "
             f"<span class='mono'>{escape(serial)}</span> · Letzter Scan {_ago(_started(last), now)}</div>"
-            f"{_rename_form(serial, last['name'], token)}{guides.cleanup_html(props)}"
+            f"{_rename_form(serial, last['name'], token)}{guides.cleanup_html(props)}{rescan}"
             f"<div class='state s-{w}' style='margin-top:12px'><span class='big d-{w}'>{ICON[w]}</span>{HEADLINE[w]}</div>"
             f"{tiles(last['counting'], interactive=True)}</div>"
             f"<div class='panel'><h2>Seit letztem Scan</h2>{diff}</div>"
@@ -614,7 +659,51 @@ LOCKED_PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8">
 <p class="muted small">Nach jedem Neustart des Dashboards gilt ein neuer Link.</p></div></main></body></html>"""
 
 
-def make_handler(cases_root: Path, port: int):
+def _start_scan(scan, serial: str, label: str, cases_root: Path) -> str | None:
+    """Starts a scan in the background. Returns an error text or None. A scan only reads the phone;
+    fixing and removing stay in the terminal, where the [j/N] question cannot be faked by a web page."""
+    import threading
+    from .adb import is_locked, list_devices
+    try:
+        if not any(d["serial"] == serial and d["state"] == "device" for d in list_devices()):
+            return "Dieses Handy ist nicht (mehr) angeschlossen oder nicht freigegeben."
+    except Exception as e:
+        return f"adb nicht erreichbar: {e}"
+    if not LIVE.scan_lock.acquire(blocking=False):
+        return "Es läuft schon ein Scan. Bitte warten, bis er fertig ist."
+
+    # the live box shows up right away, before the first answer from the phone
+    LIVE.begin(serial, label)
+    LIVE.line("Prüfe, ob das Handy entsperrt ist ...")
+
+    def run():
+        try:
+            if is_locked(serial):
+                LIVE.line("Das Handy ist gesperrt. Bitte entsperren und noch einmal „Jetzt scannen“ klicken.")
+                LIVE.end(error="Handy gesperrt")
+                return
+            scan(serial, label, cases_root)
+        except Exception:
+            pass  # scan_device already put the error into the live box
+        finally:
+            LIVE.scan_lock.release()
+
+    threading.Thread(target=run, daemon=True).start()
+    return None
+
+
+def _connected(scan) -> list[dict] | None:
+    if scan is None:
+        return None
+    from .adb import list_devices
+    try:
+        return list_devices()
+    except Exception:
+        return None  # no adb: no scan buttons, the rest of the dashboard works
+
+
+def make_handler(cases_root: Path, port: int, scan=None):
+    """scan: function(serial, label, cases_root) for the "Jetzt scannen" button; None hides the button."""
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
     allowed_origins = {f"http://{h}" for h in allowed_hosts}
     # Secret per dashboard start; forms must send it back. A foreign website cannot know it (CSRF protection).
@@ -675,17 +764,20 @@ def make_handler(cases_root: Path, port: int):
                 return self._send(200, APP_JS.read_text(encoding="utf-8"), "text/javascript; charset=utf-8")
             if path == "/api/version":
                 return self._send(200, json.dumps({"version": data_version(cases_root)}), "application/json")
+            if path == "/api/live":
+                return self._send(200, json.dumps(LIVE.snapshot()), "application/json")
 
             devices = load_cases(cases_root)
 
             if path == "/":
-                return self._send(200, render_overview(devices))
+                return self._send(200, render_overview(devices, token=token, connected=_connected(scan)))
             if path == "/verlauf":
                 return self._send(200, render_history(devices))
             if path.startswith("/device/"):
                 serial = path[len("/device/"):]
                 if serial in devices:
-                    return self._send(200, render_device(serial, devices[serial], devices, token=token))
+                    return self._send(200, render_device(serial, devices[serial], devices, token=token,
+                                                         connected=_connected(scan)))
             if path.startswith("/vergleich/"):
                 serial = path[len("/vergleich/"):]
                 query = parse_qs(self.path.partition("?")[2])
@@ -698,10 +790,10 @@ def make_handler(cases_root: Path, port: int):
                 name = path[len("/report/"):]
                 known = {s["dir"].name: s["dir"] for scans in devices.values() for s in scans}
                 if name in known:  # only exact case-folder names, no path traversal
-                    scan = next(sc for scans in devices.values() for sc in scans if sc["dir"].name == name)
+                    found = next(sc for scans in devices.values() for sc in scans if sc["dir"].name == name)
                     # rendered fresh from the JSON files; the stored report.html stays untouched (its hash is logged)
-                    return self._send(200, render_html(scan["meta"], scan["data"], scan["findings"],
-                                                       back=f"/device/{quote(scan['meta']['serial'])}"))
+                    return self._send(200, render_html(found["meta"], found["data"], found["findings"],
+                                                       back=f"/device/{quote(found['meta']['serial'])}"))
             self._send(404, "Nicht gefunden", "text/plain")
 
         def do_POST(self):
@@ -713,7 +805,7 @@ def make_handler(cases_root: Path, port: int):
             if not self._logged_in():
                 return self._send(401, LOCKED_PAGE.replace("%CSS%", CSS))
             path = unquote(self.path.split("?")[0])
-            if path not in ("/decide", "/rename"):
+            if path not in ("/decide", "/rename", "/scan"):
                 return self._send(404, "Nicht gefunden", "text/plain")
             try:
                 length = int(self.headers.get("Content-Length") or 0)
@@ -729,6 +821,21 @@ def make_handler(cases_root: Path, port: int):
 
             devices = load_cases(cases_root)
             serial = form.get("serial", "")
+            if path == "/scan":  # the device may be new, so no scan of it may exist yet
+                if scan is None:
+                    return self._send(404, "Nicht gefunden", "text/plain")
+                from .watch import _known_label
+                label = _known_label(cases_root, serial) or next(
+                    (d["model"] for d in _connected(scan) or [] if d["serial"] == serial and d["model"]), serial)
+                error = _start_scan(scan, serial, label, cases_root)
+                if error:
+                    return self._send(409, error, "text/plain; charset=utf-8")
+                back = form.get("back", "/")
+                self.send_response(303)  # only back to our own pages, never to an address from the form
+                self.send_header("Location", back if back == "/" else f"/device/{quote(serial)}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             if serial not in devices:
                 return self._send(400, "Unbekanntes Gerät", "text/plain")
             anchor = ""
@@ -772,24 +879,24 @@ class DashboardServer(ThreadingHTTPServer):
         super().server_bind()
 
 
-def create_server(cases_root: Path, port: int) -> DashboardServer:
+def create_server(cases_root: Path, port: int, scan=None) -> DashboardServer:
     try:
-        return DashboardServer(("127.0.0.1", port), make_handler(cases_root, port))
+        return DashboardServer(("127.0.0.1", port), make_handler(cases_root, port, scan))
     except OSError as e:
         raise SystemExit(PORT_BUSY.format(port=port)) from e
 
 
-def start_background(cases_root: Path, port: int) -> ThreadingHTTPServer:
+def start_background(cases_root: Path, port: int, scan=None) -> ThreadingHTTPServer:
     """Starts the dashboard in a daemon thread (used by 'watch'). The login link is
     server.RequestHandlerClass.login_url."""
     import threading
-    server = create_server(cases_root, port)
+    server = create_server(cases_root, port, scan)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
 
-def serve(cases_root: Path, port: int, open_browser: bool = True):
-    server = create_server(cases_root, port)
+def serve(cases_root: Path, port: int, open_browser: bool = True, scan=None):
+    server = create_server(cases_root, port, scan)
     url = server.RequestHandlerClass.login_url
     print(f"FamCheck-Dashboard: {url}\n(Link gilt bis zum Beenden, Strg+C zum Beenden)")
     if open_browser:
