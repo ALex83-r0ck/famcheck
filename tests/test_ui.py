@@ -151,6 +151,23 @@ class RenameTest(unittest.TestCase):
             self.assertEqual(ctx.exception.code, 403, origin)
 
 
+class ScanOrderTest(unittest.TestCase):
+    def test_scans_in_the_same_second_keep_their_order(self):
+        # CI: three quick scans, two in the same second; their order used to depend on the file system
+        from famcheck import web
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, apps in (("20261030-165147_X_S1-2", {"b": {"installer": None}}), ("20261030-165147_X_S1", {"a": {"installer": None}}),
+                               ("20261030-165148_X_S1", {"c": {"installer": None}})):
+                d = Path(tmp) / name
+                d.mkdir()
+                started = "2026-10-30T16:51:48+00:00" if name.startswith("20261030-165148") else "2026-10-30T16:51:47+00:00"
+                meta = {"serial": "S1", "label": "X", "started": started}
+                (d / "findings.json").write_text(json.dumps({"meta": meta, "findings": []}), encoding="utf-8")
+                (d / "data.json").write_text(json.dumps({"apps": apps, "props": {}}), encoding="utf-8")
+            order = [s["dir"].name for s in web.load_cases(Path(tmp))["S1"]]
+        self.assertEqual(order, ["20261030-165147_X_S1", "20261030-165147_X_S1-2", "20261030-165148_X_S1"])
+
+
 class CompareTest(unittest.TestCase):
     """Any two scans of a device, chosen in the dashboard instead of 'famcheck diff' with long folder names."""
 

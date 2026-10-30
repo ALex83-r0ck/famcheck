@@ -76,7 +76,8 @@ def load_cases(cases_root: Path) -> dict[str, list[dict]]:
     all_decisions = decisions.load(cases_root)
     names = load_names(cases_root)
     for serial, scans in devices.items():
-        scans.sort(key=lambda s: s["meta"]["started"])
+        # same second (fast machines): the folder name decides, new_case_dir numbers it -2, -3 in order
+        scans.sort(key=lambda s: (s["meta"]["started"], s["dir"].name))
         for s in scans:  # one name per device, even if scans were labelled differently
             s["name"] = names.get(serial) or scans[-1]["meta"]["label"]
         for prev, cur in zip([None] + scans, scans):
