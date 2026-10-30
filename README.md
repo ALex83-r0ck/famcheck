@@ -72,6 +72,7 @@ Scan, nach einem `scan --label "Handy Papa"` erkennt `watch` es also wieder.
 |---|---|
 | Paketnamen gegen die Indikatoren von [Echap](https://github.com/AssoEchap/stalkerware-indicators) und [MVT](https://github.com/mvt-project/mvt-indicators) | bekannte Stalker- und Spyware (mSpy, TheTruthSpy, BTMOB, NoviSpy, …) |
 | App-Dateien aus fremder Quelle: SHA-256 und Signaturzertifikat gegen dieselben Listen | erkennt auch **umbenannte** Spyware an ihrer Signatur |
+| Neue App (≤ 14 Tage) fordert „Apps installieren“ an, außer Stores, Browsern und Dateimanagern | Türöffner von Banking-Trojanern (z. B. Anatsa/TeaBot) tarnen sich als QR-Scanner oder PDF-Reader im Play Store |
 | Store-Apps: SHA-256, auf dem Handy berechnet, gegen dieselben Listen; VirusTotal-Link im Bericht | Türöffner (falsche PDF-Reader, QR-Scanner) kommen oft aus dem Play Store |
 | Aktive Bedienungshilfen von Dritt-Apps | Bildschirm mitlesen / Keylogging |
 | Benachrichtigungszugriff, Geräteadministratoren | Nachrichten mitlesen, Deinstallationsschutz |
@@ -143,7 +144,8 @@ tests/
   test_online.py   MalwareBazaar gegen lokalen Fake-Server
   test_decisions.py Einordnung: Regeln, Dashboard-Formular, Schutz gegen gefälschte Anfragen
   test_fix.py      Beheben: Scan schreibt nichts, Trockenlauf, Ablehnen, gesperrtes Handy, Undo
-  test_ui.py       App-Tabelle, Ortszeit, Umbenennen
+  test_ui.py       App-Tabelle, Ortszeit, Umbenennen, Vergleich, Startseite
+  test_live.py     Live-Protokoll und „Jetzt scannen“
   fixtures/        zwei winzige signierte Test-APKs (v1 und v2)
 FamCheck.bat    Doppelklick-Start für Windows
 ```
@@ -181,6 +183,12 @@ Siehe [ROADMAP.md](ROADMAP.md).
   den Einstellungen. Bei Apps mit kritischem Befund (Stalkerware) bewusst keine Anleitung.
 - **Aufräumen:** Unter dem Gerätenamen steht „Nach dem Scan: Handy aufräumen“, eine Checkliste von
   Kabel abziehen bis Entwicklermodus aus (bei Samsung zusätzlich: Automatische Sperre wieder an).
+- **Jetzt scannen:** Auf der Startseite unter „Neues Handy prüfen“ stehen die angeschlossenen Handys mit Knopf
+  „Jetzt scannen“, auf der Geräteseite „Jetzt neu scannen“. Ein Scan liest nur. Beheben (`fix`) und Entfernen
+  (`remove`) bleiben bewusst im Terminal, weil dort die Rückfrage [j/N] steht, die keine Webseite fälschen kann.
+- **Live-Protokoll:** Läuft ein Scan (Knopf oder `watch`), zeigt oben ein Kasten live, was gerade passiert, und
+  danach „Ergebnis ansehen“. Er zeigt nur Text, eingeben lässt sich dort nichts. Ein Scan aus einem zweiten
+  Terminal erscheint dort nicht live, sein Ergebnis aber wie gewohnt.
 - **Kacheln:** Die vier Zahlen oben (Kritisch, Hoch, Mittel, Niedrig) zählen die offenen Befunde. Ein Klick
   zeigt nur diese Stufe, ein zweiter Klick wieder alle.
 - **Kopieren:** Wo sich ein Befund im Terminal beheben lässt, steht der Befehl mit Knopf „Kopieren“.

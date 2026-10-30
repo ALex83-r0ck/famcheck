@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import __version__
+from .live import LIVE
 from .adb import (AdbError, RecordingAdb, install_platform_tools, list_devices, new_case_dir, safe_serial,
                   tools_dir)
 from . import iocs, online
@@ -24,6 +25,17 @@ def _sha256(path: Path) -> str:
 
 def scan_device(serial: str, label: str, cases_root: Path, check_apks: bool = True,
                 malwarebazaar: bool = False) -> Path:
+    LIVE.begin(serial, label)
+    try:
+        case_dir = _scan(serial, label, cases_root, check_apks, malwarebazaar)
+    except BaseException as e:  # also Ctrl+C: the live box must not show "running" forever
+        LIVE.end(error=str(e) or type(e).__name__)
+        raise
+    LIVE.end()
+    return case_dir
+
+
+def _scan(serial: str, label: str, cases_root: Path, check_apks: bool, malwarebazaar: bool) -> Path:
     started = datetime.now(timezone.utc)
     safe_label = re.sub(r"[^\w-]+", "_", label)
     case_dir = new_case_dir(cases_root, f"{started.astimezone():%Y%m%d-%H%M%S}_{safe_label}_{safe_serial(serial)}")
@@ -33,6 +45,7 @@ def scan_device(serial: str, label: str, cases_root: Path, check_apks: bool = Tr
         line = f"{datetime.now(timezone.utc).isoformat(timespec='seconds')}  {msg}"
         print(f"  {msg}")
         log_file.write(line + "\n")
+        LIVE.line(msg)
 
     meta = {"label": label, "serial": serial, "started": started.isoformat(timespec="seconds"),
             "tool_version": __version__, "ioc_sha256": iocs.file_sha256(),
@@ -57,6 +70,7 @@ def scan_device(serial: str, label: str, cases_root: Path, check_apks: bool = Tr
     counts = {s: sum(f["severity"] == s for f in findings) for s in ORDER}
     summary = ", ".join(f"{s} {n}" for s, n in counts.items() if n)
     print(f"  Ergebnis: {summary or 'keine Befunde'}")
+    LIVE.line(f"Ergebnis: {summary or 'keine Befunde'}")
     gaps = [f["title"] for f in findings if f["title"].startswith(("Scan unvollständig", "Teilprüfung"))]
     if gaps:
         print("  ! Nicht alles prüfbar: " + "; ".join(t.split(": ", 1)[1] for t in gaps))
@@ -163,7 +177,7 @@ def cmd_fix(args):
 
 def cmd_serve(args):
     from .web import serve
-    serve(Path(args.cases), args.port)
+    serve(Path(args.cases), args.port, scan=scan_device)
 
 
 def _scan_options(p):
