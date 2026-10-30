@@ -180,6 +180,24 @@ font-weight:600;text-align:center}
 .side .steps3{grid-template-columns:1fr}
 .side .steps3 div{display:flex;gap:12px;align-items:center}
 .side .steps3 b{font-size:1.2rem}
+.live{border-left:5px solid var(--accent)}
+.live.done{border-left-color:var(--ok)} .live.failed{border-left-color:var(--crit)}
+.live-head{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.live.running .live-head b::before{content:"";display:inline-block;width:.8em;height:.8em;margin-right:8px;
+border:2px solid var(--accent);border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.live.running .live-head b::before{animation:none}}
+.live-head button{font:inherit;font-size:.85rem;padding:4px 12px;border:1px solid var(--line);border-radius:999px;
+background:var(--sunken);color:var(--fg);cursor:pointer;margin-left:auto}
+.live pre{margin:10px 0 0;max-height:220px;overflow:auto;background:var(--sunken);border-radius:8px;padding:10px 12px;
+font-family:var(--mono);font-size:.8rem;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+.scan-now{margin-top:8px}
+.scan-now button{font:inherit;font-weight:600;padding:8px 16px;border:0;border-radius:999px;background:var(--accent);
+color:var(--surface);cursor:pointer;width:100%}
+.scan-now button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.panel .scan-now button{width:auto}
+.connected{display:grid;gap:6px;margin-top:14px;border-top:1px dashed var(--line);padding-top:12px}
+.connected .scan-now button{width:100%}
 .rename{margin-top:6px}
 .rename summary{cursor:pointer;color:var(--accent);font-size:.82rem;width:max-content}
 .rename form{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}

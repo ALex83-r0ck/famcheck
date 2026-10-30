@@ -8,6 +8,7 @@ from pathlib import Path
 import glob
 
 from .adb import AdbError, is_locked, list_devices, safe_serial
+from .live import LIVE
 
 POLL_SECONDS = 2
 
@@ -32,7 +33,7 @@ def watch(cases_root: Path, port: int | None, scan_device) -> None:
     if port:
         from .web import start_background
         try:
-            url = start_background(cases_root, port).RequestHandlerClass.login_url
+            url = start_background(cases_root, port, scan=scan_device).RequestHandlerClass.login_url
             print(f"Dashboard: {url}")
             webbrowser.open(url)
         except SystemExit as e:  # port busy: explain, keep scanning without dashboard
@@ -79,7 +80,13 @@ def watch(cases_root: Path, port: int | None, scan_device) -> None:
                     hint(serial, "locked", f"[{name}] Handy ist gesperrt. Bitte mit Fingerabdruck/PIN entsperren.")
                 else:
                     print(f"\n[{name}] Freigegeben, Scan startet ...")
-                    scan_device(serial, name, cases_root)
+                    asked = LIVE.snapshot()["id"]
+                    with LIVE.scan_lock:  # waits if a scan from the dashboard button is running
+                        last = LIVE.snapshot()
+                        if last["id"] != asked and last["serial"] == serial and not last["error"]:
+                            print(f"[{name}] Wurde gerade über das Dashboard gescannt.")
+                        else:
+                            scan_device(serial, name, cases_root)
                     print(f"[{name}] Fertig. Kabel abziehen und danach USB-Debugging am Handy ausschalten.\n")
                     done.add(serial)
                     told.pop(serial, None)
