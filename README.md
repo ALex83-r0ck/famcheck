@@ -146,6 +146,7 @@ tests/
   test_fix.py      Beheben: Scan schreibt nichts, Trockenlauf, Ablehnen, gesperrtes Handy, Undo
   test_ui.py       App-Tabelle, Ortszeit, Umbenennen, Vergleich, Startseite
   test_live.py     Live-Protokoll und „Jetzt scannen“
+  test_portcheck.py altes FamCheck auf dem Port erkennen und nach Rückfrage beenden
   fixtures/        zwei winzige signierte Test-APKs (v1 und v2)
 FamCheck.bat    Doppelklick-Start für Windows
 ```
@@ -155,6 +156,10 @@ FamCheck.bat    Doppelklick-Start für Windows
 Siehe [ROADMAP.md](ROADMAP.md).
 
 ## Dashboard bedienen
+
+- **Port belegt:** Läuft noch ein älteres FamCheck-Dashboard (z. B. ein vergessenes Fenster), fragen `serve` und
+  `watch`: „Beenden und hier neu starten? [j/N]“. Angeboten wird das nur, wenn auf dem Port wirklich ein
+  FamCheck antwortet und es ein Python-Prozess ist. Andere Programme werden nie angefasst.
 
 - **Startseite:** oben ein Satz zur Lage („1 von 3 Handys braucht deine Aufmerksamkeit“) und die Zahlen über alle
   Geräte. Darunter pro Handy eine Karte mit den zwei wichtigsten offenen Befunden, rechts „Was ist neu“ (neue und
