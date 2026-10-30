@@ -378,6 +378,71 @@ def run_undo(fix_dir: Path, cases_root: Path, input_fn=input, print_fn=print) ->
     return undo_dir
 
 
+# Findings about one app where deinstalling is a sensible way out (offered as a command in the dashboard)
+REMOVABLE = ("App außerhalb eines Stores installiert:", "Versteckte App mit Zugriff auf Privates:",
+             "Hoher Upload durch App aus fremder Quelle:")
+PACKAGE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$")
+
+
+def removable(finding: dict, findings: list[dict]) -> bool:
+    return (bool(finding.get("package")) and finding["title"].startswith(REMOVABLE)
+            and fix_kind(finding, findings) != "blocked")
+
+
+def run_remove(serial: str, pkg: str, scan_dir: Path, cases_root: Path,
+               input_fn=input, print_fn=print) -> Path | None:
+    """Deinstalls one app after asking. Not undoable, so: only apps the scan saw as installed by the user,
+    never one with a KRITISCH finding (whoever installed stalkerware notices), always logged."""
+    content = json.loads((scan_dir / "findings.json").read_text(encoding="utf-8"))
+    meta, findings = content["meta"], content["findings"]
+    apps = json.loads((scan_dir / "data.json").read_text(encoding="utf-8"))["apps"]
+    if not PACKAGE_RE.match(pkg) or pkg not in apps:
+        print_fn(f"{pkg} ist im letzten Scan keine vom Nutzer installierte App. "
+                 "System-Apps entfernt FamCheck nicht.")
+        return None
+    if any(f["severity"] == "KRITISCH" and f.get("package") == pkg for f in findings):
+        print_fn(f"Bewusst nicht: {SAFETY_NOTE}")
+        return None
+    if is_locked(serial):
+        print_fn(f"{meta['label']}: Bitte das Handy entsperren (Fingerabdruck/PIN) und den Befehl erneut starten.")
+        return None
+
+    app = apps[pkg]
+    rights = sorted({SENSITIVE[p] for p in app["granted"] if p in SENSITIVE})
+    print_fn(f"\nFamCheck remove für {meta['label']} ({serial}), Grundlage: Scan vom {local_time(meta['started'])}")
+    print_fn(f"  App:          {pkg}")
+    print_fn(f"  Installiert:  {app.get('first_install') or '?'} über {app['installer'] or 'unbekannt (APK/USB)'}")
+    print_fn(f"  Heikle Rechte: {', '.join(rights) or 'keine'}")
+    for f in findings:
+        if f.get("package") == pkg:
+            print_fn(f"  Befund:       {f['title']}")
+    print_fn("Deinstallieren löscht die App mit ihren Daten. Rückgängig nur durch Neuinstallation.")
+    if not _ask("App wirklich deinstallieren? [j/N] ", input_fn):
+        print_fn("Abgebrochen, nichts geändert.")
+        return None
+
+    started = datetime.now(timezone.utc)
+    remove_dir = new_case_dir(cases_root, f"{started.astimezone():%Y%m%d-%H%M%S}_remove_{safe_serial(serial)}")
+    out = RecordingAdb(serial, remove_dir).shell(f"pm uninstall {_q(pkg)}").strip()
+    ok = out.startswith("Success")
+    if ok:
+        print_fn("Erledigt. Der nächste Scan zeigt, ob sie wirklich weg ist.")
+        for f in findings:
+            if f.get("package") == pkg:
+                decisions.record(cases_root, serial, f, "done", "per famcheck remove deinstalliert")
+    elif "DEVICE_POLICY" in out:
+        print_fn("Nicht möglich: Die App ist als Geräteadministrator eingetragen und schützt sich so vor dem "
+                 "Löschen. Erst am Handy die Geräteadministrator-Rechte entziehen (Anleitung im Dashboard beim "
+                 "Befund „Geräteadministrator“), dann diesen Befehl wiederholen.")
+    else:
+        print_fn(f"FEHLER: {out[:200] or 'keine Antwort'}")
+    log = {"serial": serial, "label": meta["label"], "based_on_scan": scan_dir.name, "package": pkg,
+           "at": started.isoformat(timespec="seconds"), "status": "ausgeführt" if ok else "fehlgeschlagen",
+           "output": out}
+    (remove_dir / "removelog.json").write_text(json.dumps(log, indent=2, ensure_ascii=False), encoding="utf-8")
+    return remove_dir
+
+
 def latest_scan(cases_root: Path, serial: str) -> Path | None:
     scans = [d for d in cases_root.glob(f"*_{glob.escape(safe_serial(serial))}") if (d / "findings.json").is_file()]
     return max(scans, key=lambda d: json.loads((d / "findings.json").read_text(encoding="utf-8"))["meta"]["started"],

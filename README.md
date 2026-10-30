@@ -56,6 +56,7 @@ Unter Windows bei „Ausführung von Skripts ist deaktiviert“ einmalig:
 | `python -m famcheck setup` | adb herunterladen |
 | `python -m famcheck fix [--dry-run]` | Befunde am Handy beheben, mit Rückfrage (siehe unten) |
 | `python -m famcheck fix --undo cases/<fix-ordner>` | einen fix-Durchlauf rückgängig machen |
+| `python -m famcheck remove <paket>` | eine App deinstallieren, mit Rückfrage, **nicht** umkehrbar (siehe unten) |
 
 `adb` wird in dieser Reihenfolge gesucht: Umgebungsvariable `FAMCHECK_ADB` → Ordner
 `platform-tools` im Projektordner oder direkt daneben → von `setup` installiert (`%LOCALAPPDATA%\famcheck\platform-tools`, sonst `~/.famcheck/platform-tools`) → `PATH`.
@@ -175,6 +176,12 @@ Siehe [ROADMAP.md](ROADMAP.md).
   den Einstellungen. Bei Apps mit kritischem Befund (Stalkerware) bewusst keine Anleitung.
 - **Aufräumen:** Unter dem Gerätenamen steht „Nach dem Scan: Handy aufräumen“, eine Checkliste von
   Kabel abziehen bis Entwicklermodus aus (bei Samsung zusätzlich: Automatische Sperre wieder an).
+- **Kacheln:** Die vier Zahlen oben (Kritisch, Hoch, Mittel, Niedrig) zählen die offenen Befunde. Ein Klick
+  zeigt nur diese Stufe, ein zweiter Klick wieder alle.
+- **Kopieren:** Wo sich ein Befund im Terminal beheben lässt, steht der Befehl mit Knopf „Kopieren“.
+  Im Terminal (famcheck-Ordner, venv aktiv) mit Rechtsklick einfügen und Enter. Das Dashboard selbst führt
+  nie etwas am Handy aus. Seriennummer und Paketname stammen vom Handy; nur streng geprüfte Werte landen
+  in einem kopierbaren Befehl.
 - **Zeiten** stehen in deutscher Ortszeit; in den Daten (`data.json`, Logs) bleibt UTC.
 
 Alles funktioniert auch ohne JavaScript, dann ohne Filter und ohne Live-Update.
@@ -219,6 +226,20 @@ Sicherheitshinweis.
 Jeder Durchlauf bekommt einen eigenen Ordner `cases/<zeit>_fix_<name>_<serial>/` mit Rohdaten,
 `manifest.csv` und `fixlog.json` (inklusive der Befehle zum Rückgängigmachen). Behobene Befunde werden
 im Dashboard als „Erledigt“ eingeordnet. Der nächste Scan zeigt, ob es wirklich geklappt hat.
+
+## Apps entfernen (`remove`)
+
+`python -m famcheck remove --serial <gerät> <paket>` deinstalliert eine App. Das Dashboard bietet den Befehl
+zum Kopieren bei Apps aus fremder Quelle, versteckten Apps und Apps mit hohem Upload an. Vorher zeigt FamCheck
+Quelle, Installationsdatum, heikle Rechte und Befunde der App und fragt nach. Anders als `fix` lässt sich das
+**nicht rückgängig machen** (nur durch Neuinstallation).
+
+- Nur Apps, die der letzte Scan als vom Nutzer installiert gesehen hat. System-Apps nie.
+- **Nie für Apps mit kritischem Befund (Stalkerware):** Wer sie installiert hat, merkt das Entfernen.
+  Erst die Sicherheit der betroffenen Person klären (Hilfetelefon 116 016).
+- Ist die App Geräteadministrator, verweigert Android das Löschen. FamCheck sagt dann, was vorher zu tun ist.
+- Jeder Durchlauf landet als `cases/<zeit>_remove_<gerät>/` mit `removelog.json` und Rohausgabe. Die Befunde der
+  App werden als „Erledigt“ eingeordnet, der nächste Scan zeigt, ob sie wirklich weg ist.
 
 ## App-Dateien und MalwareBazaar
 

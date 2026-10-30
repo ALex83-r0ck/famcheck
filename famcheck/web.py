@@ -9,6 +9,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import socket
 import sys
@@ -22,7 +23,7 @@ from urllib.parse import parse_qs, quote, unquote
 
 from . import decisions, fix, guides, iocs
 from .report import ROLE_LABELS, compute_diff, install_info, render_html, source_label
-from .style import CSS, HEADLINE, ICON, SEV_KEY, SEV_LABEL, local_time
+from .style import CSS, HEADLINE, ICON, SEV_KEY, SEV_LABEL, local_time, tiles
 from .style import chips as _chips
 from .style import uploads_html as _uploads_html
 from .style import worst as _worst
@@ -390,11 +391,31 @@ def _toolbar(findings: list[dict]) -> str:
             "<span id='f-count' class='muted small' aria-live='polite'></span></div>")
 
 
+SAFE_SERIAL = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
+
+
+def _copy_box(command: str, text: str) -> str:
+    """A command to paste into the terminal. The dashboard itself never runs anything on the phone."""
+    return (f"<div class='decision'>{text}</div><div class='copy'><code>{escape(command)}</code>"
+            f"<button type='button' data-copy='{escape(command)}'>Kopieren</button></div>")
+
+
+def _command(sub: str, serial: str, *args: str) -> str:
+    # Serial and package name come from the phone. Only strictly checked values may end up in a command the user
+    # pastes into a terminal; a serial like "x; Remove-Item ..." is left out (famcheck then asks for the device).
+    target = f" --serial {serial}" if SAFE_SERIAL.match(serial) else ""
+    return " ".join(("python -m famcheck", sub + target) + args)
+
+
 def _fix_hint(serial: str, f: dict, all_findings: list[dict]) -> str:
     kind = fix.fix_kind(f, all_findings)
+    if fix.removable(f, all_findings) and fix.PACKAGE_RE.match(f["package"]):
+        return _copy_box(_command("remove", serial, f["package"]),
+                         "App entfernen: Befehl kopieren, im Terminal (famcheck-Ordner) einfügen und Enter. "
+                         "FamCheck zeigt die App und fragt vor dem Löschen nach. Nicht umkehrbar.")
     if kind == "auto":
-        return (f"<div class='decision'>Behebbar im Terminal, mit Rückfrage und umkehrbar: "
-                f"<code>python -m famcheck fix --serial {escape(serial)}</code></div>")
+        return _copy_box(_command("fix", serial),
+                         "Behebbar im Terminal, mit Rückfrage und umkehrbar: Befehl kopieren, einfügen, Enter.")
     if kind == "blocked" and f.get("package"):
         return ("<div class='decision'>Bewusst keine automatische Änderung: App mit kritischem Befund. "
                 "Erst die Sicherheit der betroffenen Person klären.</div>")
@@ -452,7 +473,8 @@ def render_device(serial: str, scans: list[dict], devices: dict, now: datetime |
             f"Patch <span class='num'>{escape(props.get('ro.build.version.security_patch', '?'))}</span> · "
             f"<span class='mono'>{escape(serial)}</span> · Letzter Scan {_ago(_started(last), now)}</div>"
             f"{_rename_form(serial, last['name'], token)}{guides.cleanup_html(props)}"
-            f"<div class='state s-{w}' style='margin-top:12px'><span class='big d-{w}'>{ICON[w]}</span>{HEADLINE[w]}</div></div>"
+            f"<div class='state s-{w}' style='margin-top:12px'><span class='big d-{w}'>{ICON[w]}</span>{HEADLINE[w]}</div>"
+            f"{tiles(last['counting'], interactive=True)}</div>"
             f"<div class='panel'><h2>Seit letztem Scan</h2>{diff}</div>"
             f"<div class='panel'><h2>Befunde</h2><p class='muted small' style='margin:0 0 6px'>Einordnen ändert nichts "
             f"am Handy, nur wie FamCheck den Befund zählt. „Bekannt“ gilt, bis sich der Befund verändert, "

@@ -126,12 +126,8 @@ def cmd_watch(args):
     watch(Path(args.cases), None if args.no_dashboard else args.port, scan)
 
 
-def cmd_fix(args):
+def _one_device_with_scan(args) -> tuple[str, Path]:
     from . import fix
-    cases = Path(args.cases)
-    if args.undo:
-        fix.run_undo(Path(args.undo), cases)
-        return
     devices = [d for d in list_devices() if d["state"] == "device"]
     if args.serial:
         devices = [d for d in devices if d["serial"] == args.serial]
@@ -139,9 +135,25 @@ def cmd_fix(args):
         sys.exit("Genau ein angeschlossenes, freigegebenes Handy nötig (oder --serial angeben)."
                  if devices else "Kein freigegebenes Handy gefunden. Anstecken, entsperren, USB-Debugging zulassen.")
     serial = devices[0]["serial"]
-    scan_dir = fix.latest_scan(cases, serial)
+    scan_dir = fix.latest_scan(Path(args.cases), serial)
     if not scan_dir:
         sys.exit(f"Für {serial} gibt es noch keinen Scan. Erst: python -m famcheck scan")
+    return serial, scan_dir
+
+
+def cmd_remove(args):
+    from . import fix
+    serial, scan_dir = _one_device_with_scan(args)
+    fix.run_remove(serial, args.package, scan_dir, Path(args.cases))
+
+
+def cmd_fix(args):
+    from . import fix
+    cases = Path(args.cases)
+    if args.undo:
+        fix.run_undo(Path(args.undo), cases)
+        return
+    serial, scan_dir = _one_device_with_scan(args)
     started = json.loads((scan_dir / "findings.json").read_text(encoding="utf-8"))["meta"]["started"]
     age = (datetime.now(timezone.utc) - datetime.fromisoformat(started)).days
     if age >= 1:
@@ -200,6 +212,12 @@ def main():
     p.add_argument("--dry-run", action="store_true", help="Nur zeigen, was passieren würde")
     p.add_argument("--undo", metavar="FIX_ORDNER", help="Einen früheren fix-Durchlauf rückgängig machen")
     p.set_defaults(func=cmd_fix)
+
+    p = sub.add_parser("remove", help="Eine App vom Handy deinstallieren (mit Rückfrage, nicht umkehrbar)")
+    p.add_argument("package", help="Paketname, z. B. com.example.app (steht im Dashboard beim Befund)")
+    p.add_argument("--serial", help="Nur dieses Gerät")
+    p.add_argument("--cases", default="cases", help="Ordner mit Scan-Ergebnissen")
+    p.set_defaults(func=cmd_remove)
 
     p = sub.add_parser("serve", help="Monitoring-Dashboard auf localhost starten")
     p.add_argument("--cases", default="cases", help="Ordner mit Scan-Ergebnissen")

@@ -8,7 +8,7 @@ from urllib.parse import quote
 
 from .analyze import SENSITIVE, TRUSTED_STORES, app_readable
 from .guides import steps_html
-from .style import CSS, HEADLINE, ICON, SEV_KEY, SEV_LABEL, chips, local_time, uploads_html, worst
+from .style import CSS, HEADLINE, ICON, SEV_KEY, SEV_LABEL, local_time, tiles, uploads_html, worst
 
 
 VT_URL = "https://www.virustotal.com/gui/file/"
@@ -119,7 +119,8 @@ def render_html(meta: dict, data: dict, findings: list[dict], back: str | None =
     p = data["props"]
     w = worst(findings)
     rows = "".join(
-        f"<div class='finding'><span class='chip s-{SEV_KEY.get(f['severity'], 'ok')}'>"
+        f"<div class='finding' data-sev='{SEV_KEY.get(f['severity'], 'info')}'>"
+        f"<span class='chip s-{SEV_KEY.get(f['severity'], 'ok')}'>"
         f"{SEV_LABEL.get(SEV_KEY.get(f['severity']), 'Info')}</span>"
         f"<b>{escape(f['title'])}</b><span class='a'>{escape(f['detail'])}<br>→ {escape(f['action'])}</span>"
         f"{steps_html(f, p, findings)}</div>"
@@ -140,7 +141,7 @@ Patch <span class="num">{escape(p.get('ro.build.version.security_patch', '?'))}<
 <div class="muted small">Scan {escape(local_time(meta['started']))} · FamCheck {escape(meta['tool_version'])} ·
 Indikatorliste SHA-256 <span class="mono">{escape(meta['ioc_sha256'][:16])}…</span></div>
 <div class="state s-{w}" style="margin-top:12px"><span class="big d-{w}">{ICON[w]}</span>{HEADLINE[w]}</div>
-<div style="margin-top:8px">{chips(findings)}</div>
+{tiles(findings)}
 <p class="muted small" style="margin:10px 0 0">So, wie dieser Scan es gefunden hat, ohne spätere Einordnung.
 Heuristiken: „Kein Befund“ heißt nicht „garantiert sauber“, ein Befund heißt nicht automatisch „Spyware“.</p>
 </div>
