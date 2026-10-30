@@ -60,7 +60,7 @@ class MalwareBazaarTest(unittest.TestCase):
             server.server_close()
 
         self.assertIn("MalwareBazaar kennt diese APK: Triada", [f["title"] for f in findings])
-        self.assertEqual(len(FakeBazaar.requests), 2)  # two APKs from unknown sources
+        self.assertEqual(len(FakeBazaar.requests), 3)  # two APKs from unknown sources + one store app (hashed on the phone)
         for r in FakeBazaar.requests:
             self.assertEqual(r["key"], "test-key")
             self.assertEqual(set(r["body"]), {"query", "hash"})  # nothing else leaves the PC

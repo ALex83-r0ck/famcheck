@@ -1,6 +1,7 @@
 """Collects security-relevant state from the device. Only reads, never changes anything."""
 
 import re
+import shlex
 import time
 
 from .adb import RecordingAdb
@@ -206,6 +207,14 @@ def _apk_paths(out: str) -> list[str]:
     return [line.split(":", 1)[1].strip() for line in out.splitlines() if line.startswith("package:")]
 
 
+def _hash_on_device(adb: RecordingAdb, pkg: str) -> list[dict]:
+    """SHA-256 of an app's files, computed by the phone itself: nothing is copied to the PC.
+    Store apps are not pulled, but droppers (e.g. fake PDF readers and QR scanners) come from stores."""
+    out = adb.shell(f'for f in $(pm path {shlex.quote(pkg)} | cut -d: -f2); do sha256sum "$f"; done')
+    return [{"path": m.group(2), "sha256": m.group(1)}
+            for m in re.finditer(r"^([0-9a-f]{64})\s+(/\S+)$", out, re.M)]
+
+
 def collect(adb: RecordingAdb, log, check_apks: bool = True) -> dict:
     data = {"props": {}, "settings": {}}
 
@@ -274,6 +283,14 @@ def collect(adb: RecordingAdb, log, check_apks: bool = True) -> dict:
             third_party[pkg]["apk"] = {"files": files, "cert_sha1": base.get("cert_sha1"),
                                        "cert_sha256": base.get("cert_sha256")}
 
+        store_apps = [p for p in third_party if p not in unknown_source]
+        if store_apps:
+            log(f"Berechne Fingerabdrücke von {len(store_apps)} Store-App(s) auf dem Handy ...")
+        for pkg in store_apps:
+            if files := _hash_on_device(adb, pkg):
+                third_party[pkg]["apk"] = {"files": files, "cert_sha1": None, "cert_sha256": None, "on_device": True}
+        hashed_store_apps = sum(1 for p in store_apps if "apk" in third_party[p])
+
     log("Lese aktive VPN-Verbindungen ...")
     vpn_uids = _parse_vpn_owner_uids(adb.shell("dumpsys connectivity"))
     data["active_vpn"] = sorted({p for uid in vpn_uids for p in uid_names.get(uid, [f"uid {uid}"])})
@@ -300,4 +317,6 @@ def collect(adb: RecordingAdb, log, check_apks: bool = True) -> dict:
         "lock_settings": data["lock_credential"] is not None,
         "timeouts": list(adb.timeouts),
     }
+    if check_apks:
+        data["coverage"].update(store_apps=len(store_apps), store_apps_hashed=hashed_store_apps)
     return data

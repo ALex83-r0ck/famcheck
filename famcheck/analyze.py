@@ -135,6 +135,9 @@ def coverage_findings(data: dict) -> list[dict]:
         (not cov["device_policy"], "Geräteverwaltung",
          "Fremdverwaltung und Geräteadministratoren ließen sich nicht prüfen."),
     ]
+    if cov.get("store_apps") and not cov.get("store_apps_hashed"):  # .get: older scans have no such keys
+        partial.append((True, "Fingerabdrücke der Store-Apps",
+                        "Das Handy konnte keine Prüfsummen berechnen (sha256sum fehlt, ältere Android-Version?)."))
     sdk = data.get("props", {}).get("ro.build.version.sdk", "")
     if sdk.isdigit() and int(sdk) >= 30:  # lock_settings dump exists from Android 11
         partial.append((not cov["lock_settings"], "Displaysperre", "Ob eine PIN gesetzt ist, ließ sich nicht prüfen."))
