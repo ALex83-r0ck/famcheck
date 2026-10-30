@@ -166,6 +166,9 @@ Siehe [ROADMAP.md](ROADMAP.md).
   Fremde Quelle, Ohne App-Symbol, Mit heiklen Rechten. „Play Store“ zeigt Name, Entwickler und Bewertungen.
 - **Umbenennen:** Auf der Geräteseite unter „Umbenennen“ (z. B. „moto_g06“ → „Handy Alex“). Gilt für alle
   Scans des Geräts und für neue Scans im `watch`-Modus. Die Scans selbst bleiben unverändert.
+- **Vergleichen:** Auf der Geräteseite unter „Alle Scans“ zwei beliebige Scans auswählen, oder bei einem
+  Scan auf „Vergleich“ klicken (mit dem Scan davor). Zeigt neue und entfernte Apps mit Datum, neue heikle
+  Rechte, Konten und welche Befunde dazugekommen oder verschwunden sind. Ersetzt `famcheck diff`.
 - **Zeiten** stehen in deutscher Ortszeit; in den Daten (`data.json`, Logs) bleibt UTC.
 
 Alles funktioniert auch ohne JavaScript, dann ohne Filter und ohne Live-Update.

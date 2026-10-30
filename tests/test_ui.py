@@ -150,5 +150,61 @@ class RenameTest(unittest.TestCase):
             self.assertEqual(ctx.exception.code, 403, origin)
 
 
+class CompareTest(unittest.TestCase):
+    """Any two scans of a device, chosen in the dashboard instead of 'famcheck diff' with long folder names."""
+
+    @classmethod
+    def setUpClass(cls):
+        FAKE_ADB.chmod(0o755)
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.cases = Path(cls.tmp.name)
+        env = {**os.environ, "FAMCHECK_ADB": str(FAKE_ADB)}
+        for extra in ({}, {"FAKE_ADB_NEWAPP": "1"}, {}):  # app appears, then disappears again
+            subprocess.run([sys.executable, "-m", "famcheck", "scan", "--serial", "SAUBER01", "--cases",
+                            str(cls.cases)], cwd=ROOT, env={**env, **extra}, check=True, capture_output=True)
+        cls.scans = sorted(d.name for d in cls.cases.iterdir() if d.is_dir())
+        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), None)
+        cls.server.RequestHandlerClass = make_handler(cls.cases, cls.server.server_address[1])
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        cls.base = f"http://127.0.0.1:{cls.server.server_address[1]}"
+        cls.jar = urllib.request.HTTPCookieProcessor()
+        urllib.request.build_opener(cls.jar).open(cls.server.RequestHandlerClass.login_url)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+        cls.tmp.cleanup()
+
+    def get(self, path):
+        try:
+            return 200, urllib.request.build_opener(self.jar).open(self.base + path).read().decode()
+        except urllib.error.HTTPError as e:
+            return e.code, ""
+
+    def test_device_page_offers_comparison(self):
+        _, page = self.get("/device/SAUBER01")
+        self.assertIn("action='/vergleich/SAUBER01'", page)
+        self.assertIn(f"/vergleich/SAUBER01?a={self.scans[1]}&amp;b={self.scans[2]}", page)  # per row
+        self.assertIn("com.example.flashlight</span><span class='muted'>entfernt, zuletzt gesehen beim Scan am", page)
+
+    def test_compare_any_two(self):
+        first, middle, last = self.scans
+        _, page = self.get(f"/vergleich/SAUBER01?a={first}&b={middle}")
+        self.assertIn("com.example.flashlight</span><span class='muted'><span class='chip s-mid'>fremde Quelle</span> "
+                      "installiert am 01.09.2026 10:00 über APK-Datei", page)
+        self.assertIn("App außerhalb eines Stores installiert: com.example.flashlight</span>"
+                      "<span class='muted'>neu</span>", page)
+        _, reverse = self.get(f"/vergleich/SAUBER01?a={middle}&b={first}")  # order of the choice does not matter
+        self.assertIn("installiert am 01.09.2026", reverse)
+        _, same = self.get(f"/vergleich/SAUBER01?a={first}&b={last}")
+        self.assertIn("Keine Änderungen an Apps, Rechten und Konten.", same)
+        self.assertIn("Dieselben Befunde in beiden Scans.", same)
+
+    def test_only_scans_of_this_device(self):
+        self.assertEqual(self.get(f"/vergleich/SAUBER01?a=../../etc&b={self.scans[0]}")[0], 404)
+        self.assertEqual(self.get(f"/vergleich/UNBEKANNT?a={self.scans[0]}&b={self.scans[1]}")[0], 404)
+
+
 if __name__ == "__main__":
     unittest.main()

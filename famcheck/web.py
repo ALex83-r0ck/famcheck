@@ -21,7 +21,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote
 
 from . import decisions, fix, iocs
-from .report import ROLE_LABELS, compute_diff, render_html, source_label
+from .report import ROLE_LABELS, compute_diff, install_info, render_html, source_label
 from .style import CSS, HEADLINE, ICON, SEV_KEY, SEV_LABEL, local_time
 from .style import chips as _chips
 from .style import uploads_html as _uploads_html
@@ -224,13 +224,18 @@ def render_history(devices: dict[str, list[dict]], now: datetime | None = None) 
     return _page("FamCheck – Verlauf", "history", body, devices)
 
 
-def _diff_html(diff: dict) -> str:
+def _diff_html(diff: dict, old: dict | None = None, new: dict | None = None) -> str:
+    """old/new: the two scans, for install dates of new apps and when removed apps were last seen."""
     rows = []
     for p, i in diff["added"].items():
         source, foreign = source_label(i)
         warn = "<span class='chip s-mid'>fremde Quelle</span> " if foreign else ""
+        when = ""
+        if new:
+            day, _ = install_info(new["data"]["apps"][p].get("first_install"), new["meta"]["started"])
+            when = f" am {day}" if day not in ("–", "ab Werk") else ""
         rows.append(f"<div class='change'><span class='op op-add'>+</span><span class='mono'>{escape(p)}</span>"
-                    f"<span class='muted'>{warn}neu installiert über {escape(source)}</span></div>")
+                    f"<span class='muted'>{warn}installiert{escape(when)} über {escape(source)}</span></div>")
     rows += [f"<div class='change'><span class='op op-perm'>!</span><span class='mono'>{escape(p)}</span>"
              f"<span class='muted'>neue heikle Rechte: {escape(', '.join(g))}</span></div>"
              for p, g in diff["new_permissions"].items()]
@@ -242,12 +247,64 @@ def _diff_html(diff: dict) -> str:
     if diff.get("new_device_owner"):
         rows.append(f"<div class='change'><span class='op op-role'>!</span><span class='mono'>{escape(diff['new_device_owner'])}</span>"
                     f"<span class='muted'>verwaltet jetzt das Gerät</span></div>")
+    seen = f", zuletzt gesehen beim Scan am {local_time(old['meta']['started'])}" if old else ""
     rows += [f"<div class='change'><span class='op op-rm'>−</span><span class='mono'>{escape(p)}</span>"
-             f"<span class='muted'>entfernt</span></div>" for p in diff["removed"]]
+             f"<span class='muted'>entfernt{escape(seen)}</span></div>" for p in diff["removed"]]
     if diff.get("not_comparable"):
         rows.append(f"<div class='change'><span class='op'>?</span><b>{diff['not_comparable']} Apps nicht vergleichbar</b>"
                     f"<span class='muted'>ihre Daten waren in einem der beiden Scans nicht lesbar</span></div>")
-    return "".join(rows) or "<p class='muted' style='margin:0'>Keine Änderungen seit dem vorherigen Scan.</p>"
+    return "".join(rows) or "<p class='muted' style='margin:0'>Keine Änderungen an Apps, Rechten und Konten.</p>"
+
+
+def _findings_diff_html(old: dict, new: dict) -> str:
+    """Findings that appeared or disappeared between two scans (by title, as the triage does)."""
+    before = {f["title"]: f for f in old["findings"]}
+    after = {f["title"]: f for f in new["findings"]}
+
+    def row(op, cls, f, text):
+        key = SEV_KEY.get(f["severity"], "ok")
+        label = SEV_LABEL.get(SEV_KEY.get(f["severity"]), "Info")
+        return (f"<div class='change'><span class='op {cls}'>{op}</span><span class='chip s-{key}'>{label}</span>"
+                f"<span>{escape(f['title'])}</span><span class='muted'>{text}</span></div>")
+
+    rows = [row("+", "op-add", f, "neu") for t, f in after.items() if t not in before]
+    rows += [row("−", "op-rm", f, "nicht mehr gefunden") for t, f in before.items() if t not in after]
+    return "".join(rows) or "<p class='muted' style='margin:0'>Dieselben Befunde in beiden Scans.</p>"
+
+
+def _scan_options(scans: list[dict], selected: str) -> str:
+    return "".join(f"<option value='{escape(s['dir'].name)}'{' selected' if s['dir'].name == selected else ''}>"
+                   f"{escape(local_time(s['meta']['started']))}</option>" for s in reversed(scans))
+
+
+def _compare_form(serial: str, scans: list[dict], a: str, b: str) -> str:
+    return (f"<form class='compare' method='get' action='/vergleich/{quote(serial)}'>"
+            f"<label>Von <select name='a'>{_scan_options(scans, a)}</select></label>"
+            f"<label>bis <select name='b'>{_scan_options(scans, b)}</select></label>"
+            f"<button>Vergleichen</button></form>")
+
+
+def render_compare(serial: str, scans: list[dict], devices: dict, a: str, b: str) -> str | None:
+    """Any two scans of one device side by side. None if a name is not a scan of this device."""
+    by_name = {s["dir"].name: s for s in scans}
+    if a not in by_name or b not in by_name:
+        return None
+    old, new = sorted((by_name[a], by_name[b]), key=lambda s: s["meta"]["started"])
+    name = scans[-1]["name"]
+    if old is new:
+        body = "<p class='muted' style='margin:0'>Zweimal derselbe Scan, bitte zwei verschiedene wählen.</p>"
+    else:
+        body = (f"<h3 style='margin:14px 0 6px;font-size:1rem'>Apps, Rechte und Konten</h3>"
+                f"{_diff_html(compute_diff(old['data'], new['data']), old, new)}"
+                f"<h3 style='margin:14px 0 6px;font-size:1rem'>Befunde</h3>{_findings_diff_html(old, new)}")
+    page = (f"<div class='panel'><p style='margin:0 0 8px'><a href='/device/{quote(serial)}'>← {escape(name)}</a></p>"
+            f"<h2 style='font-size:1.3rem;margin:0'>Vergleich: {escape(name)}</h2>"
+            f"<div class='muted small'>{escape(local_time(old['meta']['started']))} → "
+            f"{escape(local_time(new['meta']['started']))} · "
+            f"<a href='/report/{escape(old['dir'].name)}'>Bericht alt</a> · "
+            f"<a href='/report/{escape(new['dir'].name)}'>Bericht neu</a></div>"
+            f"{_compare_form(serial, scans, old['dir'].name, new['dir'].name)}{body}</div>")
+    return _page(f"FamCheck – Vergleich {name}", "", page, devices)
 
 
 def _triage_line(triaged: list[dict]) -> str:
@@ -372,12 +429,21 @@ def render_device(serial: str, scans: list[dict], devices: dict, now: datetime |
                      "<div data-findings>"
                      + "".join(_finding_html(serial, f, token, last["findings"], rank[id(f)]) for f in hidden)
                      + "</div></details>")
+    def compare_link(prev, cur):
+        if not prev:
+            return ""
+        url = f"/vergleich/{quote(serial)}?a={quote(prev['dir'].name)}&amp;b={quote(cur['dir'].name)}"
+        return f" · <a href='{url}'>Vergleich</a>"
+
     history = "".join(
         f"<tr><td class='num'>{escape(local_time(s['meta']['started']))}</td>"
         f"<td>{_chips(s['findings'])}</td><td class='small'>{_change_line(s['diff'])}</td>"
-        f"<td><a href='/report/{escape(s['dir'].name)}'>Bericht</a></td></tr>"
-        for s in reversed(scans))
-    diff = (_diff_html(last["diff"]) if last["diff"] is not None
+        f"<td style='white-space:nowrap'><a href='/report/{escape(s['dir'].name)}'>Bericht</a>{compare_link(prev, s)}</td></tr>"
+        for prev, s in reversed(list(zip([None] + scans, scans))))
+    compare = (f"<p class='muted small' style='margin:0 0 6px'>Zwei beliebige Scans vergleichen:</p>"
+               f"{_compare_form(serial, scans, scans[-2]['dir'].name, last['dir'].name)}"
+               if len(scans) > 1 else "")
+    diff = (_diff_html(last["diff"], scans[-2], last) if last["diff"] is not None
             else "<p class='muted' style='margin:0'>Erst ein Scan vorhanden, noch kein Vergleich möglich.</p>")
     body = (f"<div class='panel'><p style='margin:0 0 8px'><a href='/'>← Übersicht</a></p>"
             f"<h2 style='font-size:1.3rem;margin:0'>{escape(last['name'])}</h2>"
@@ -393,7 +459,7 @@ def render_device(serial: str, scans: list[dict], devices: dict, now: datetime |
             f"„Erledigt“ bis zum nächsten Scan. Klick auf einen Befund zeigt Details.</p>{findings}</div>"
             f"{_uploads_html(last['data'])}"
             f"<div class='panel'><h2>Alle Scans</h2><p class='muted small' style='margin:0 0 6px'>Ohne Einordnung, "
-            f"so wie gescannt.</p><div class='scroll'><table><tr><th>Zeit</th><th>Befunde</th>"
+            f"so wie gescannt.</p>{compare}<div class='scroll'><table><tr><th>Zeit</th><th>Befunde</th>"
             f"<th>Änderungen</th><th></th></tr>{history}</table></div></div>")
     return _page(f"FamCheck – {last['name']}", "", body, devices)
 
@@ -496,6 +562,14 @@ def make_handler(cases_root: Path, port: int):
                 serial = path[len("/device/"):]
                 if serial in devices:
                     return self._send(200, render_device(serial, devices[serial], devices, token=token))
+            if path.startswith("/vergleich/"):
+                serial = path[len("/vergleich/"):]
+                query = parse_qs(self.path.partition("?")[2])
+                if serial in devices:
+                    page = render_compare(serial, devices[serial], devices,
+                                          query.get("a", [""])[0], query.get("b", [""])[0])
+                    if page:
+                        return self._send(200, page)
             if path.startswith("/report/"):
                 name = path[len("/report/"):]
                 known = {s["dir"].name: s["dir"] for scans in devices.values() for s in scans}
