@@ -42,6 +42,11 @@ class PlausibilityTest(unittest.TestCase):
         gaps = [f["title"] for f in findings if "nicht möglich" in f["title"] or "unvollständig" in f["title"]]
         self.assertEqual(gaps, ["Teilprüfung nicht möglich: Uploads pro App"])
 
+    def test_no_on_device_hashing_is_named(self):
+        findings, _ = self.scan(FAKE_ADB_NO_SHA256SUM="1")
+        gaps = [f["title"] for f in findings if "nicht möglich" in f["title"] or "unvollständig" in f["title"]]
+        self.assertEqual(gaps, ["Teilprüfung nicht möglich: Fingerabdrücke der Store-Apps"])
+
     def test_clean_device_has_no_gaps(self):
         findings, out = self.scan()
         self.assertFalse([f for f in findings if "unvollständig" in f["title"] or "nicht möglich" in f["title"]])

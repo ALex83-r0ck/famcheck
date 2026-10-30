@@ -71,6 +71,7 @@ Scan, nach einem `scan --label "Handy Papa"` erkennt `watch` es also wieder.
 |---|---|
 | Paketnamen gegen die Indikatoren von [Echap](https://github.com/AssoEchap/stalkerware-indicators) und [MVT](https://github.com/mvt-project/mvt-indicators) | bekannte Stalker- und Spyware (mSpy, TheTruthSpy, BTMOB, NoviSpy, …) |
 | App-Dateien aus fremder Quelle: SHA-256 und Signaturzertifikat gegen dieselben Listen | erkennt auch **umbenannte** Spyware an ihrer Signatur |
+| Store-Apps: SHA-256, auf dem Handy berechnet, gegen dieselben Listen; VirusTotal-Link im Bericht | Türöffner (falsche PDF-Reader, QR-Scanner) kommen oft aus dem Play Store |
 | Aktive Bedienungshilfen von Dritt-Apps | Bildschirm mitlesen / Keylogging |
 | Benachrichtigungszugriff, Geräteadministratoren | Nachrichten mitlesen, Deinstallationsschutz |
 | Apps ohne App-Symbol mit Kamera/Mikrofon/SMS/Standort | typisches Versteckverhalten |
@@ -210,6 +211,10 @@ kopiert, ihr SHA-256 und Signaturzertifikat berechnet und die Datei sofort wiede
 Im `manifest.csv` steht jeder Kopiervorgang mit Hash. Ausschalten mit `--no-apk-check`.
 Schlägt der Virenschutz auf dem PC dabei an, ist das bereits ein Hinweis.
 
+Apps aus einem Store werden **nicht** kopiert: Das Handy berechnet ihre SHA-256 selbst (`sha256sum`).
+Im Bericht steht bei jeder geprüften App ein Link „VirusTotal“. Er überträgt nur den Fingerabdruck,
+keine Datei.
+
 Optional zusätzlich online prüfen, nur die Hashes werden gesendet:
 
 1. Kostenlosen Schlüssel holen: https://auth.abuse.ch/
@@ -243,8 +248,8 @@ FamCheck verarbeitet Daten von Geräten, die manipuliert sein könnten. Deshalb:
 - Das sind Heuristiken: „Kein Befund“ heißt nicht „garantiert sauber“. Staatstrojaner wie Pegasus
   findet FamCheck nicht. Bei solchem Verdacht: [MVT](https://github.com/mvt-project/mvt) mit
   [AndroidQF](https://github.com/mvt-project/androidqf).
-- Signatur und Hash werden nur für Apps aus fremder Quelle geprüft (Apps aus dem Play Store
-  werden nicht vom Handy kopiert). Neu signierte Spyware erkennt nur noch die Heuristik.
+- Das Signaturzertifikat wird nur für Apps aus fremder Quelle geprüft, bei Store-Apps nur der Hash.
+  Ein Hash erkennt nur exakt bekannte Dateien; neu gebaute Schadsoftware erkennt nur die Heuristik.
 - Upload-Mengen kommen aus der Android-Statistik und reichen meist nur einige Tage bis Wochen zurück.
 - Die Displaysperre wird erst ab Android 11 erkannt, auf älteren Geräten fehlt diese Prüfung.
 - Die Ausgaben von `dumpsys` unterscheiden sich je nach Hersteller und Android-Version.

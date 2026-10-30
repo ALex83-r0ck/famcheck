@@ -1,5 +1,6 @@
 """End-to-end test with a fake adb. Run: python -m unittest discover tests"""
 
+import hashlib
 import json
 import os
 import subprocess
@@ -92,7 +93,27 @@ class SmokeTest(unittest.TestCase):
         self.assertIn(V1_SHA256, manifest)
         data = json.loads((case / "data.json").read_text(encoding="utf-8"))
         self.assertEqual(data["apps"]["com.example.flashlight"]["apk"]["cert_sha1"], V2_CERT_SHA1)
-        self.assertNotIn("apk", data["apps"]["com.whatsapp"])  # store apps are not pulled
+        # store apps are not pulled, the phone computes their hash itself
+        self.assertNotIn("pull /data/app/~~Xy12==/com.whatsapp", manifest)
+        wa = data["apps"]["com.whatsapp"]["apk"]
+        self.assertTrue(wa["on_device"])
+        self.assertEqual(wa["files"][0]["sha256"], hashlib.sha256(b"com.whatsapp").hexdigest())
+        report = (case / "report.html").read_text(encoding="utf-8")
+        self.assertIn("https://www.virustotal.com/gui/file/" + wa["files"][0]["sha256"], report)
+        self.assertIn("rel='noopener noreferrer'", report)
+
+    def test_store_app_with_known_bad_hash(self):
+        # droppers (fake PDF readers, QR scanners) come from the Play Store; their hash must be checked too
+        with tempfile.TemporaryDirectory() as tmp:
+            db = json.loads((ROOT / "famcheck" / "data" / "iocs.json").read_text(encoding="utf-8"))
+            db["sha256"][hashlib.sha256(b"com.whatsapp").hexdigest()] = "TestDropper"
+            (Path(tmp) / "iocs.json").write_text(json.dumps(db), encoding="utf-8")
+            run_famcheck("scan", "--serial", "SAUBER01", "--cases", str(Path(tmp) / "cases"),
+                         FAMCHECK_IOCS=str(Path(tmp) / "iocs.json"))
+            case = next((Path(tmp) / "cases").iterdir())
+            findings = json.loads((case / "findings.json").read_text(encoding="utf-8"))["findings"]
+            hit = next(f for f in findings if f["title"] == "Bekannte Schad-APK: TestDropper")
+            self.assertEqual((hit["severity"], hit["package"]), ("KRITISCH", "com.whatsapp"))
 
     def test_uploads_parsed(self):
         case = sorted(self.cases.glob("*_SAUBER01"))[0]

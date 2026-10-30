@@ -8,6 +8,9 @@ from .analyze import SENSITIVE, app_readable
 from .style import CSS, HEADLINE, ICON, SEV_KEY, SEV_LABEL, chips, uploads_html, worst
 
 
+VT_URL = "https://www.virustotal.com/gui/file/"
+
+
 def render_html(meta: dict, data: dict, findings: list[dict], back: str | None = None) -> str:
     """The scan report: everything this one scan found, without any later triage."""
     p = data["props"]
@@ -21,10 +24,19 @@ def render_html(meta: dict, data: dict, findings: list[dict], back: str | None =
     def icon(a):
         return {True: "ja", False: "nein"}.get(a.get("has_launcher_icon"), "?")
 
+    def check_link(a):
+        files = (a.get("apk") or {}).get("files", [])
+        f = next((f for f in files if f["path"].endswith("/base.apk") and f.get("sha256")),
+                 next((f for f in files if f.get("sha256")), None))
+        if not f:
+            return "–"
+        return (f"<a href='{VT_URL}{escape(f['sha256'])}' target='_blank' rel='noopener noreferrer' "
+                f"title='SHA-256 {escape(f['sha256'])}'>VirusTotal</a>")
+
     app_rows = "".join(
         f"<tr><td class='mono'>{escape(pkg)}</td><td class='mono'>{escape(a['installer'] or '–')}</td>"
         f"<td>{icon(a)}</td><td class='num'>{escape(a.get('first_install') or '')}</td>"
-        f"<td class='num'>{len(a['granted'])}</td></tr>"
+        f"<td class='num'>{len(a['granted'])}</td><td>{check_link(a)}</td></tr>"
         for pkg, a in sorted(data["apps"].items()))
     nav = f"<p style='margin:0 0 8px'><a href='{escape(back)}'>← Zum Gerät im Dashboard</a></p>" if back else ""
     model = f"{p.get('ro.product.manufacturer', '')} {p.get('ro.product.model', '')}".strip()
@@ -46,8 +58,11 @@ Heuristiken: „Kein Befund“ heißt nicht „garantiert sauber“, ein Befund 
 <div class="panel"><h2>Befunde ({len(findings)})</h2>{rows}</div>
 {uploads_html(data)}
 <div class="panel"><h2>Installierte Apps ({len(data['apps'])})</h2><div class="scroll"><table>
-<tr><th>Paket</th><th>Installiert über</th><th>App-Symbol</th><th>Erstinstallation</th><th>Rechte</th></tr>
-{app_rows}</table></div></div>
+<tr><th>Paket</th><th>Installiert über</th><th>App-Symbol</th><th>Erstinstallation</th><th>Rechte</th><th>Prüfen</th></tr>
+{app_rows}</table></div>
+<p class="muted small" style="margin:10px 0 0">„VirusTotal“ öffnet die Prüfung der App-Datei. Dabei wird nur ihr
+Fingerabdruck (SHA-256) übertragen, keine Datei und keine persönlichen Daten. Viele rote Treffer = Schadsoftware;
+„nicht gefunden“ ist kein Freispruch.</p></div>
 </main></body></html>"""
 
 

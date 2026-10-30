@@ -11,9 +11,11 @@ FAKE_ADB_BROKEN=1 returns empty output for properties, package lists and setting
 FAKE_ADB_NO_NETSTATS=1 returns no data usage statistics.
 FAKE_ADB_DUMP_FAIL=pkg1,pkg2 answers "dumpsys package" for these apps with an error message (seen on a real device).
 FAKE_ADB_DUMP_FLAKY=<file> answers the first "dumpsys package" with an error, later ones normally.
+FAKE_ADB_NO_SHA256SUM=1 makes on-device hashing fail (old Android without sha256sum).
 FAKE_ADB_SDK=<n> overrides the Android API level (default 33, INFIZIERT01 31).
 FAKE_ADB_CRLF=1 ends lines with \r\n, like Windows and old adb shells.
 """
+import hashlib
 import json
 import shutil
 import time
@@ -101,6 +103,12 @@ elif cmd == "dumpsys device_policy":
     print("    com.google.android.gms/.mdm.receivers.MdmDeviceAdminReceiver:\n      uid=10120")
 elif cmd.startswith("stat -c %s "):
     print("999999999999" if os.environ.get("FAKE_ADB_HUGE") == "1" else "4096")
+elif cmd.startswith("for f in $(pm path "):  # on-device hashing of store apps
+    pkg = cmd.split()[5]
+    if os.environ.get("FAKE_ADB_NO_SHA256SUM") == "1":
+        print("/system/bin/sh: sha256sum: inaccessible or not found")
+    else:
+        print(hashlib.sha256(pkg.encode()).hexdigest() + f"  /data/app/~~Xy12==/{pkg}-AbC==/base.apk")
 elif cmd.startswith("pm path "):
     pkg = cmd.split()[-1]
     print(f"package:/data/app/~~Xy12==/{pkg}-AbC==/base.apk")
