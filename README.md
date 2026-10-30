@@ -141,6 +141,7 @@ tests/
   test_online.py   MalwareBazaar gegen lokalen Fake-Server
   test_decisions.py Einordnung: Regeln, Dashboard-Formular, Schutz gegen gefälschte Anfragen
   test_fix.py      Beheben: Scan schreibt nichts, Trockenlauf, Ablehnen, gesperrtes Handy, Undo
+  test_ui.py       App-Tabelle, Ortszeit, Umbenennen
   fixtures/        zwei winzige signierte Test-APKs (v1 und v2)
 FamCheck.bat    Doppelklick-Start für Windows
 ```
@@ -160,6 +161,12 @@ Siehe [ROADMAP.md](ROADMAP.md).
   aktualisiert sich die Seite von selbst. Aufgeklappte Befunde, Filter und Scrollposition bleiben dabei
   erhalten. Tippst du gerade eine Notiz, erscheint stattdessen ein Hinweis „Neue Scan-Daten sind da“.
 - **Einordnen ohne Neuladen:** Speichern bestätigt ein kurzer Hinweis unten rechts.
+- **Apps im Bericht:** Neueste zuerst, „neu“ = in den 14 Tagen vor dem Scan installiert. Quelle im Klartext
+  („Google Play“, „Galaxy Store“, „fremde Quelle“), vorinstallierte Apps als „ab Werk“. Filter: Neu,
+  Fremde Quelle, Ohne App-Symbol, Mit heiklen Rechten. „Play Store“ zeigt Name, Entwickler und Bewertungen.
+- **Umbenennen:** Auf der Geräteseite unter „Umbenennen“ (z. B. „moto_g06“ → „Handy Alex“). Gilt für alle
+  Scans des Geräts und für neue Scans im `watch`-Modus. Die Scans selbst bleiben unverändert.
+- **Zeiten** stehen in deutscher Ortszeit; in den Daten (`data.json`, Logs) bleibt UTC.
 
 Alles funktioniert auch ohne JavaScript, dann ohne Filter und ohne Live-Update.
 

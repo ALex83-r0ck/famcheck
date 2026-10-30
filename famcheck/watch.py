@@ -13,7 +13,13 @@ POLL_SECONDS = 2
 
 
 def _known_label(cases_root: Path, serial: str) -> str | None:
-    """Reuses the label of the last scan of this device (e.g. 'Handy Papa')."""
+    """The name given in the dashboard, else the label of the last scan of this device (e.g. 'Handy Papa')."""
+    from .web import load_names
+    try:
+        if name := load_names(cases_root).get(serial):
+            return name
+    except (OSError, ValueError):
+        pass
     for case in sorted(cases_root.glob(f"*_{glob.escape(safe_serial(serial))}"), reverse=True):
         try:
             return json.loads((case / "findings.json").read_text(encoding="utf-8"))["meta"]["label"]

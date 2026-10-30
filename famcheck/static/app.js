@@ -139,6 +139,41 @@
     }
   });
 
+  // ---- app table (report page): filter by one property, sort --------------------------------------------
+  const apps = { filter: "all", sort: "installed" };
+
+  function applyAppFilter() {
+    const table = document.querySelector("table[data-apps]");
+    if (!table) return;
+    const rows = [...table.querySelectorAll("tr[data-app]")];
+    const body = rows.length ? rows[0].parentNode : null;
+    rows.sort((a, b) => apps.sort === "name"
+      ? a.dataset.name.localeCompare(b.dataset.name)
+      : b.dataset.installed.localeCompare(a.dataset.installed) || a.dataset.name.localeCompare(b.dataset.name));
+    rows.forEach((r) => {
+      body.appendChild(r);
+      r.hidden = apps.filter !== "all" && !(apps.filter in r.dataset);
+    });
+    document.querySelectorAll("[data-app-filter]").forEach((b) => {
+      b.setAttribute("aria-pressed", String(b.dataset.appFilter === apps.filter));
+    });
+    const sort = document.getElementById("app-sort");
+    if (sort) sort.value = apps.sort;
+  }
+
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-app-filter]");
+    if (!b) return;
+    apps.filter = b.dataset.appFilter;
+    applyAppFilter();
+  });
+
+  document.addEventListener("change", (e) => {
+    if (e.target.id !== "app-sort") return;
+    apps.sort = e.target.value;
+    applyAppFilter();
+  });
+
   // ---- swap in fresh page content, keeping what the user had open -----------------------------------
   function openState() {
     return {
@@ -161,6 +196,7 @@
     if (keep.triaged) document.querySelectorAll("details.triaged").forEach((d) => { d.open = true; });
     document.title = doc.title;
     applyFilters();
+    applyAppFilter();
     window.scrollTo(0, y);
     return true;
   }
@@ -253,6 +289,7 @@
   // ---- start ----------------------------------------------------------------------------------------
   function start() {
     applyFilters();
+    applyAppFilter();
     const target = location.hash && document.getElementById(location.hash.slice(1));
     if (target && target.matches("details.fx")) {
       target.open = true;
