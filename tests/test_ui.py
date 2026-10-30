@@ -207,6 +207,37 @@ class CompareTest(unittest.TestCase):
         self.assertEqual(_command("fix", "x; Remove-Item C:\\"), "python -m famcheck fix")  # serial dropped
         self.assertEqual(_command("fix", "192.168.0.5:5555"), "python -m famcheck fix --serial 192.168.0.5:5555")
 
+    def test_start_page(self):
+        from datetime import datetime, timedelta, timezone
+        from famcheck import web
+        _, page = self.get("/")
+        self.assertIn("Das Handy ist unauffällig", page)  # the sideloaded app is gone again in the last scan
+        self.assertIn("class='tiles'", page)
+        self.assertIn("<h2>Was ist neu</h2>", page)
+        self.assertIn("neue App <span class='mono'>com.example.flashlight</span> "
+                      "<span class='chip s-mid'>fremde Quelle</span>", page)
+        self.assertIn("App entfernt <span class='mono'>com.example.flashlight</span>", page)
+        self.assertIn("Keine. Alles aktuell.", page)
+        self.assertIn("href='/device/SAUBER01'>Ansehen</a>", page)
+        later = web.render_overview(web.load_cases(self.cases), now=datetime.now(timezone.utc) + timedelta(days=50))
+        self.assertIn("seit 50 Tagen nicht gescannt", later)
+        self.assertIn("neu scannen", later)
+
+    def test_hero_counts_devices_that_need_a_look(self):
+        from famcheck import web
+        devices = web.load_cases(self.cases)
+        first = devices["SAUBER01"][:2]  # up to the scan with the sideloaded app (MITTEL)
+        self.assertIn("Das Handy braucht deine Aufmerksamkeit", web.render_overview({"SAUBER01": first}))
+        two = web.render_overview({"SAUBER01": first, "B": devices["SAUBER01"][:1]})
+        self.assertIn("1 von 2 Handys braucht deine Aufmerksamkeit", two)
+        self.assertIn("Die anderen Geräte sind unauffällig.", two)
+
+    def test_start_page_without_devices(self):
+        from famcheck import web
+        page = web.render_overview({})
+        self.assertIn("Noch kein Handy geprüft", page)
+        self.assertIn("USB-Debugging zulassen", page)
+
     def test_compare_any_two(self):
         first, middle, last = self.scans
         _, page = self.get(f"/vergleich/SAUBER01?a={first}&b={middle}")
