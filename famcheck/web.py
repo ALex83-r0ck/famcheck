@@ -76,7 +76,8 @@ def load_cases(cases_root: Path) -> dict[str, list[dict]]:
     all_decisions = decisions.load(cases_root)
     names = load_names(cases_root)
     for serial, scans in devices.items():
-        scans.sort(key=lambda s: s["meta"]["started"])
+        # same second (fast machines): the folder name decides, new_case_dir numbers it -2, -3 in order
+        scans.sort(key=lambda s: (s["meta"]["started"], s["dir"].name))
         for s in scans:  # one name per device, even if scans were labelled differently
             s["name"] = names.get(serial) or scans[-1]["meta"]["label"]
         for prev, cur in zip([None] + scans, scans):
@@ -491,7 +492,24 @@ STATE_TAGS = {"suppressed": ("", None), "watch": ("Beobachten", ""), "changed": 
               "reopened": ("wieder offen", "warn")}
 
 
-def _finding_html(serial: str, f: dict, token: str, all_findings: list[dict], rank: int, props: dict) -> str:
+def _phone_buttons(serial: str, f: dict, all_findings: list[dict], token: str) -> str:
+    """Buttons that open the right screen on the plugged-in phone. The change itself is made there, by a tap."""
+    actions = guides.phone_actions(f, all_findings, removable=fix.removable(f, all_findings))
+    if not actions:
+        return ""
+    labels = {"open": "Am Handy öffnen", "uninstall": "Deinstallieren am Handy bestätigen"}
+    hidden = (f"<input type='hidden' name='token' value='{escape(token)}'>"
+              f"<input type='hidden' name='serial' value='{escape(serial)}'>"
+              f"<input type='hidden' name='key' value='{escape(decisions.finding_key(f))}'>")
+    buttons = "".join(f"<form class='phone' method='post' action='/phone'>{hidden}"
+                      f"<input type='hidden' name='what' value='{what}'><button>{labels[what]}</button></form>"
+                      for what in ("open", "uninstall") if what in actions)
+    return (f"<div class='phone-actions'>{buttons}<span class='muted small'>Öffnet den Bildschirm auf dem "
+            f"angeschlossenen Handy. Geändert wird erst, wenn du dort tippst.</span></div>")
+
+
+def _finding_html(serial: str, f: dict, token: str, all_findings: list[dict], rank: int, props: dict,
+                  plugged_in: bool = False) -> str:
     key = SEV_KEY.get(f["severity"], "ok")
     sev = SEV_KEY.get(f["severity"], "info")  # for the filter, INFO stays its own group
     label = SEV_LABEL.get(SEV_KEY.get(f["severity"]), "Info")
@@ -516,7 +534,9 @@ def _finding_html(serial: str, f: dict, token: str, all_findings: list[dict], ra
             f"data-search='{escape(search)}'>"
             f"<summary><span class='chip s-{key}'>{label}</span><b>{escape(f['title'])}</b>{tag}</summary>"
             f"<div class='fbody'><span class='a'>{escape(f['detail'])}<br>→ {escape(f['action'])}</span>"
-            f"{guides.steps_html(f, props, all_findings)}{_fix_hint(serial, f, all_findings)}{_decision_html(f)}{form}</div></details>")
+            f"{guides.steps_html(f, props, all_findings)}"
+            f"{_phone_buttons(serial, f, all_findings, token) if plugged_in and token else ''}"
+            f"{_fix_hint(serial, f, all_findings, plugged_in and bool(token))}{_decision_html(f)}{form}</div></details>")
 
 
 def _toolbar(findings: list[dict]) -> str:
@@ -552,9 +572,10 @@ def _command(sub: str, serial: str, *args: str) -> str:
     return " ".join(("python -m famcheck", sub + target) + args)
 
 
-def _fix_hint(serial: str, f: dict, all_findings: list[dict]) -> str:
+def _fix_hint(serial: str, f: dict, all_findings: list[dict], plugged_in: bool = False) -> str:
     kind = fix.fix_kind(f, all_findings)
-    if fix.removable(f, all_findings) and fix.PACKAGE_RE.match(f["package"]):
+    # phone plugged in: the "Deinstallieren am Handy bestätigen" button is the simpler way
+    if fix.removable(f, all_findings) and fix.PACKAGE_RE.match(f["package"]) and not plugged_in:
         return _copy_box(_command("remove", serial, f["package"]),
                          "App entfernen: Befehl kopieren, im Terminal (famcheck-Ordner) einfügen und Enter. "
                          "FamCheck zeigt die App und fragt vor dem Löschen nach. Nicht umkehrbar.")
@@ -587,13 +608,14 @@ def render_device(serial: str, scans: list[dict], devices: dict, now: datetime |
     active = [f for f in last["triaged"] if f["decision_state"] != "suppressed"]
     hidden = [f for f in last["triaged"] if f["decision_state"] == "suppressed"]
     rank = {id(f): i for i, f in enumerate(last["triaged"])}
+    plugged_in = any(d["serial"] == serial and d["state"] == "device" for d in connected or [])
     findings = (_toolbar(last["triaged"]) + "<div data-findings>"
-                + ("".join(_finding_html(serial, f, token, last["findings"], rank[id(f)], props) for f in active)
+                + ("".join(_finding_html(serial, f, token, last["findings"], rank[id(f)], props, plugged_in) for f in active)
                    or "<p class='muted' style='margin:0'>Keine offenen Befunde.</p>") + "</div>")
     if hidden:
         findings += (f"<details class='triaged'><summary>Eingeordnet ({len(hidden)}), zählen nicht zur Ampel</summary>"
                      "<div data-findings>"
-                     + "".join(_finding_html(serial, f, token, last["findings"], rank[id(f)], props) for f in hidden)
+                     + "".join(_finding_html(serial, f, token, last["findings"], rank[id(f)], props, plugged_in) for f in hidden)
                      + "</div></details>")
     def compare_link(prev, cur):
         if not prev:
@@ -611,7 +633,6 @@ def render_device(serial: str, scans: list[dict], devices: dict, now: datetime |
                if len(scans) > 1 else "")
     diff = (_diff_html(last["diff"], scans[-2], last) if last["diff"] is not None
             else "<p class='muted' style='margin:0'>Erst ein Scan vorhanden, noch kein Vergleich möglich.</p>")
-    plugged_in = any(d["serial"] == serial and d["state"] == "device" for d in connected or [])
     rescan = _scan_button(serial, "Jetzt neu scannen", token, f"/device/{serial}") if token and plugged_in else ""
     body = (f"<div class='panel'><p style='margin:0 0 8px'><a href='/'>← Übersicht</a></p>"
             f"<h2 style='font-size:1.3rem;margin:0'>{escape(last['name'])}</h2>"
@@ -690,6 +711,27 @@ def _start_scan(scan, serial: str, label: str, cases_root: Path) -> str | None:
 
     threading.Thread(target=run, daemon=True).start()
     return None
+
+
+def _open_on_phone(cases_root: Path, serial: str, finding: dict, what: str, args: str) -> str | None:
+    """Runs 'am start' on the phone: opens a screen, changes nothing. Returns an error text or None.
+    Every call is logged in cases/phone_actions.jsonl."""
+    import subprocess
+    from .adb import adb_command, list_devices
+    try:
+        if not any(d["serial"] == serial and d["state"] == "device" for d in list_devices()):
+            return "Das Handy ist nicht (mehr) angeschlossen oder nicht freigegeben."
+        proc = subprocess.run([*adb_command(), "-s", serial, "shell", f"am start -a {args}"], capture_output=True,
+                              text=True, encoding="utf-8", errors="replace", timeout=20)
+        out = (proc.stdout + proc.stderr).strip()
+    except Exception as e:
+        return f"adb nicht erreichbar: {e}"
+    failed = proc.returncode != 0 or "Error" in out
+    with open(cases_root / "phone_actions.jsonl", "a", encoding="utf-8") as log:
+        log.write(json.dumps({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "serial": serial,
+                              "finding": finding["title"], "what": what, "command": f"am start -a {args}",
+                              "ok": not failed, "output": out[:300]}, ensure_ascii=False) + "\n")
+    return f"Am Handy ließ sich das nicht öffnen: {out[:200]}" if failed else None
 
 
 def _connected(scan) -> list[dict] | None:
@@ -805,7 +847,7 @@ def make_handler(cases_root: Path, port: int, scan=None):
             if not self._logged_in():
                 return self._send(401, LOCKED_PAGE.replace("%CSS%", CSS))
             path = unquote(self.path.split("?")[0])
-            if path not in ("/decide", "/rename", "/scan"):
+            if path not in ("/decide", "/rename", "/scan", "/phone"):
                 return self._send(404, "Nicht gefunden", "text/plain")
             try:
                 length = int(self.headers.get("Content-Length") or 0)
@@ -841,6 +883,19 @@ def make_handler(cases_root: Path, port: int, scan=None):
             anchor = ""
             if path == "/rename":
                 save_name(cases_root, serial, form.get("name", ""))
+            elif path == "/phone":
+                findings = devices[serial][-1]["findings"]
+                finding = next((f for f in findings if decisions.finding_key(f) == form.get("key", "")), None)
+                if finding is None:
+                    return self._send(400, "Unbekannter Befund", "text/plain; charset=utf-8")
+                what = form.get("what", "")
+                args = guides.phone_actions(finding, findings, removable=fix.removable(finding, findings)).get(what)
+                if not args:  # also: stalkerware never gets a button, so no request may open anything for it
+                    return self._send(400, "Für diesen Befund gibt es das nicht", "text/plain; charset=utf-8")
+                error = _open_on_phone(cases_root, serial, finding, what, args)
+                if error:
+                    return self._send(409, error, "text/plain; charset=utf-8")
+                anchor = "#" + _anchor(finding)
             else:
                 key, status = form.get("key", ""), form.get("status", "")
                 finding = next((f for f in devices[serial][-1]["findings"] if decisions.finding_key(f) == key), None)

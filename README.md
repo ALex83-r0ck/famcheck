@@ -189,6 +189,11 @@ Siehe [ROADMAP.md](ROADMAP.md).
 - **Live-Protokoll:** Läuft ein Scan (Knopf oder `watch`), zeigt oben ein Kasten live, was gerade passiert, und
   danach „Ergebnis ansehen“. Er zeigt nur Text, eingeben lässt sich dort nichts. Ein Scan aus einem zweiten
   Terminal erscheint dort nicht live, sein Ergebnis aber wie gewohnt.
+- **Am Handy öffnen:** Ist das Handy angeschlossen, haben viele Befunde den Knopf „Am Handy öffnen“. Er öffnet
+  auf dem Handy die passende Seite (Bedienungshilfen, Entwickleroptionen, App-Info …). Bei Apps zum Entfernen
+  öffnet „Deinstallieren am Handy bestätigen“ den Deinstallieren-Dialog von Android. **Geändert wird erst, wenn
+  du am Handy tippst**, eine Webseite kann das nicht fälschen. Bei Stalkerware gibt es diese Knöpfe nicht.
+  Jeder Klick steht in `cases/phone_actions.jsonl`.
 - **Kacheln:** Die vier Zahlen oben (Kritisch, Hoch, Mittel, Niedrig) zählen die offenen Befunde. Ein Klick
   zeigt nur diese Stufe, ein zweiter Klick wieder alle.
 - **Kopieren:** Wo sich ein Befund im Terminal beheben lässt, steht der Befehl mit Knopf „Kopieren“.

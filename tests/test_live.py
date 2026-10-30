@@ -29,7 +29,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-class LiveTest(unittest.TestCase):
+class LiveBase(unittest.TestCase):
     def setUp(self):
         FAKE_ADB.chmod(0o755)
         self.tmp = tempfile.TemporaryDirectory()
@@ -82,6 +82,9 @@ class LiveTest(unittest.TestCase):
             time.sleep(0.05)
         self.fail("scan did not finish")
 
+
+
+class LiveTest(LiveBase):
     def test_button_starts_a_scan(self):
         self.start()
         page = self.get("/")
@@ -133,6 +136,63 @@ class LiveTest(unittest.TestCase):
         self.assertIsNone(live["error"])
         self.assertIn("Lese Paketlisten ...", live["lines"])
         self.assertEqual(live["lines"][-1], "Ergebnis: NIEDRIG 1")
+
+
+class PhoneTest(LiveBase):
+    """"Am Handy öffnen": the dashboard only opens a screen on the phone; the change is a tap there."""
+
+    FLASH = "App außerhalb eines Stores installiert: com.example.flashlight"
+
+    def setUp(self):
+        super().setUp()
+        self.state = self.cases / "phone.json"
+        os.environ["FAKE_ADB_STATE"] = str(self.state)
+        with mock.patch("builtins.print"), mock.patch.dict(os.environ, {"FAKE_ADB_NEWAPP": "1"}):
+            scan_device("SAUBER01", "Handy", self.cases)
+            scan_device("INFIZIERT01", "Papa", self.cases)
+        self.start()
+
+    def phone(self, serial, key, what):
+        page = self.get(f"/device/{serial}")
+        token = re.search(r"name='token' value='([^']+)'", page).group(1)
+        req = urllib.request.Request(self.base + "/phone", data=urllib.parse.urlencode(
+            {"token": token, "serial": serial, "key": key, "what": what}).encode())
+        try:
+            return urllib.request.build_opener(self.jar, NoRedirect).open(req).status
+        except urllib.error.HTTPError as e:
+            return e.code
+
+    def phone_state(self):
+        return json.loads(self.state.read_text(encoding="utf-8")) if self.state.exists() else {}
+
+    def test_buttons_only_where_it_is_safe(self):
+        page = self.get("/device/SAUBER01")
+        self.assertIn("Deinstallieren am Handy bestätigen", page)
+        self.assertIn("Am Handy öffnen", page)
+        papa = self.get("/device/INFIZIERT01")
+        stalker = papa[papa.index("Bedienungshilfe aktiv: com.systemservice"):]
+        stalker = stalker[:stalker.index("</details>")]
+        self.assertNotIn("Am Handy öffnen", stalker)  # stalkerware: never
+
+    def test_uninstall_opens_androids_own_dialog(self):
+        self.assertEqual(self.phone("SAUBER01", self.FLASH, "uninstall"), 303)
+        state = self.phone_state()
+        self.assertEqual(state["opened"],
+                         ["SAUBER01: am start -a android.intent.action.DELETE -d package:com.example.flashlight"])
+        self.assertEqual(state.get("writes", []), [])  # nothing was changed by FamCheck itself
+        log = (self.cases / "phone_actions.jsonl").read_text(encoding="utf-8")
+        self.assertIn('"what": "uninstall"', log)
+
+    def test_open_settings_screen(self):
+        self.assertEqual(self.phone("SAUBER01", "USB-Debugging ist an", "open"), 303)
+        self.assertEqual(self.phone_state()["opened"],
+                         ["SAUBER01: am start -a android.settings.APPLICATION_DEVELOPMENT_SETTINGS"])
+
+    def test_refused_for_stalkerware_and_unknown(self):
+        self.assertEqual(self.phone("INFIZIERT01", "Bedienungshilfe aktiv: com.systemservice", "open"), 400)
+        self.assertEqual(self.phone("SAUBER01", "USB-Debugging ist an", "uninstall"), 400)
+        self.assertEqual(self.phone("SAUBER01", "gibt es nicht", "open"), 400)
+        self.assertNotIn("opened", self.phone_state())
 
 
 if __name__ == "__main__":

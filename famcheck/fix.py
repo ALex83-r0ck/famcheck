@@ -445,5 +445,5 @@ def run_remove(serial: str, pkg: str, scan_dir: Path, cases_root: Path,
 
 def latest_scan(cases_root: Path, serial: str) -> Path | None:
     scans = [d for d in cases_root.glob(f"*_{glob.escape(safe_serial(serial))}") if (d / "findings.json").is_file()]
-    return max(scans, key=lambda d: json.loads((d / "findings.json").read_text(encoding="utf-8"))["meta"]["started"],
-               default=None)
+    return max(scans, key=lambda d: (json.loads((d / "findings.json").read_text(encoding="utf-8"))["meta"]["started"],
+                                     d.name), default=None)  # same second: the later -2 folder wins
