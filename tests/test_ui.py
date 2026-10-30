@@ -19,7 +19,8 @@ ROOT = Path(__file__).resolve().parent.parent
 FAKE_ADB = Path(__file__).resolve().parent / "fake_adb.py"
 sys.path.insert(0, str(ROOT))
 
-from famcheck.report import apps_html, install_info, source_label  # noqa: E402
+from famcheck import guides  # noqa: E402
+from famcheck.report import apps_html, install_info, render_html, source_label  # noqa: E402
 from famcheck.style import local_time  # noqa: E402
 from famcheck.web import make_handler  # noqa: E402
 
@@ -188,6 +189,12 @@ class CompareTest(unittest.TestCase):
         self.assertIn(f"/vergleich/SAUBER01?a={self.scans[1]}&amp;b={self.scans[2]}", page)  # per row
         self.assertIn("com.example.flashlight</span><span class='muted'>entfernt, zuletzt gesehen beim Scan am", page)
 
+    def test_steps_and_cleanup_on_device_page(self):
+        _, page = self.get("/device/SAUBER01")  # fake Pixel: stock Android menus
+        self.assertIn("So geht’s (Google):", page)
+        self.assertIn("Einstellungen → System → Entwickleroptionen", page)
+        self.assertIn("Nach dem Scan: Handy aufräumen (Google)", page)
+
     def test_compare_any_two(self):
         first, middle, last = self.scans
         _, page = self.get(f"/vergleich/SAUBER01?a={first}&b={middle}")
@@ -204,6 +211,53 @@ class CompareTest(unittest.TestCase):
     def test_only_scans_of_this_device(self):
         self.assertEqual(self.get(f"/vergleich/SAUBER01?a=../../etc&b={self.scans[0]}")[0], 404)
         self.assertEqual(self.get(f"/vergleich/UNBEKANNT?a={self.scans[0]}&b={self.scans[1]}")[0], 404)
+
+
+class GuideTest(unittest.TestCase):
+    SAMSUNG = {"ro.product.manufacturer": "samsung"}
+    MOTO = {"ro.product.manufacturer": "motorola"}
+
+    def finding(self, title, severity="MITTEL", package=None):
+        return {"title": title, "severity": severity, "detail": "", "action": "", "package": package}
+
+    def test_every_guide_matches_a_real_finding(self):
+        # if analyze.py renames a finding, its guide must not silently disappear
+        source = (ROOT / "famcheck" / "analyze.py").read_text(encoding="utf-8")
+        for prefix, key in guides.TOPICS:
+            self.assertIn(prefix.rstrip(":"), source, prefix)
+            self.assertTrue(guides.GUIDES[key][guides.SAMSUNG] and guides.GUIDES[key][guides.DEFAULT], key)
+
+    def test_vendor(self):
+        self.assertEqual(guides.vendor(self.SAMSUNG), ("samsung", "Samsung"))
+        self.assertEqual(guides.vendor(self.MOTO), ("default", "Motorola"))
+        self.assertIn("Xiaomi", guides.vendor({"ro.product.manufacturer": "Xiaomi"})[1])
+
+    def test_steps_for_the_phone(self):
+        f = self.finding("Bedienungshilfe aktiv: com.evil<x>", "HOCH", "com.evil<x>")
+        samsung = guides.steps_html(f, self.SAMSUNG, [f])
+        self.assertIn("So geht’s (Samsung)", samsung)
+        self.assertIn("Eingabehilfe", samsung)
+        self.assertIn("<span class='mono'>com.evil&lt;x&gt;</span> antippen", samsung)
+        self.assertIn("nach „Installierte Apps“ suchen", samsung)
+        self.assertIn("Bedienungshilfen", guides.steps_html(f, self.MOTO, [f]))
+        self.assertIn("Konten und Sicherung",
+                      guides.steps_html(self.finding("2 Google-Konten auf dem Gerät", "NIEDRIG"), self.SAMSUNG, []))
+        self.assertEqual(guides.steps_html(self.finding("Bootloader entsperrt / Verified Boot verletzt"),
+                                           self.SAMSUNG, []), "")  # no guide, nothing shown
+
+    def test_no_steps_for_stalkerware(self):
+        crit = self.finding("Bekannte Spyware: X", "KRITISCH", "com.spy")
+        admin = self.finding("Geräteadministrator: com.spy", "MITTEL", "com.spy")
+        self.assertEqual(guides.steps_html(admin, self.SAMSUNG, [crit, admin]), "")
+        self.assertEqual(guides.steps_html(crit, self.SAMSUNG, [crit, admin]), "")
+
+    def test_cleanup_and_report(self):
+        self.assertIn("Automatische Sperre", guides.cleanup_html(self.SAMSUNG))
+        self.assertNotIn("Automatische Sperre", guides.cleanup_html(self.MOTO))
+        f = self.finding("USB-Debugging ist an", "NIEDRIG")
+        meta = {"label": "x", "serial": "s", "started": SCAN, "tool_version": "0", "ioc_sha256": "0" * 64}
+        html = render_html(meta, {"props": self.SAMSUNG, "apps": {}}, [f])
+        self.assertIn("Entwickleroptionen (ganz unten)", html)
 
 
 if __name__ == "__main__":

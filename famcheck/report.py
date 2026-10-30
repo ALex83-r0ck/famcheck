@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from .analyze import SENSITIVE, TRUSTED_STORES, app_readable
+from .guides import steps_html
 from .style import CSS, HEADLINE, ICON, SEV_KEY, SEV_LABEL, chips, local_time, uploads_html, worst
 
 
@@ -120,7 +121,8 @@ def render_html(meta: dict, data: dict, findings: list[dict], back: str | None =
     rows = "".join(
         f"<div class='finding'><span class='chip s-{SEV_KEY.get(f['severity'], 'ok')}'>"
         f"{SEV_LABEL.get(SEV_KEY.get(f['severity']), 'Info')}</span>"
-        f"<b>{escape(f['title'])}</b><span class='a'>{escape(f['detail'])}<br>→ {escape(f['action'])}</span></div>"
+        f"<b>{escape(f['title'])}</b><span class='a'>{escape(f['detail'])}<br>→ {escape(f['action'])}</span>"
+        f"{steps_html(f, p, findings)}</div>"
         for f in findings) or "<p class='muted' style='margin:0'>Keine Auffälligkeiten gefunden.</p>"
 
     # the stored report.html is a plain file without scripts; inside the dashboard app.js adds the filters

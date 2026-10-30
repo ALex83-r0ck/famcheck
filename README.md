@@ -127,6 +127,7 @@ famcheck/
   web.py        lokales Dashboard: Status-Kacheln, Verlauf, Gerätedetails (nur Standardbibliothek)
   static/app.js Filter, Suche, Auf-/Zuklappen, Live-Update, Einordnen ohne Neuladen
   style.py      gemeinsames Design von Dashboard und Bericht
+  guides.py     Schritt-für-Schritt-Anleitungen und Aufräum-Checkliste je Hersteller
   decisions.py  Einordnung von Befunden (Bekannt/Erledigt/Beobachten) mit Protokoll
   fix.py        Befunde beheben: Plan aus dem Live-Zustand, Rückfrage, Protokoll, Undo
   watch.py      Plug & Play: wartet auf Freigabe am Handy, scannt automatisch
@@ -169,6 +170,11 @@ Siehe [ROADMAP.md](ROADMAP.md).
 - **Vergleichen:** Auf der Geräteseite unter „Alle Scans“ zwei beliebige Scans auswählen, oder bei einem
   Scan auf „Vergleich“ klicken (mit dem Scan davor). Zeigt neue und entfernte Apps mit Datum, neue heikle
   Rechte, Konten und welche Befunde dazugekommen oder verschwunden sind. Ersetzt `famcheck diff`.
+- **Schritt für Schritt:** Viele Befunde zeigen beim Aufklappen eine nummerierte Anleitung mit dem Menüpfad
+  des Herstellers (Samsung bzw. Standard-Android wie Pixel und Motorola) und einem Suchbegriff für die Suche in
+  den Einstellungen. Bei Apps mit kritischem Befund (Stalkerware) bewusst keine Anleitung.
+- **Aufräumen:** Unter dem Gerätenamen steht „Nach dem Scan: Handy aufräumen“, eine Checkliste von
+  Kabel abziehen bis Entwicklermodus aus (bei Samsung zusätzlich: Automatische Sperre wieder an).
 - **Zeiten** stehen in deutscher Ortszeit; in den Daten (`data.json`, Logs) bleibt UTC.
 
 Alles funktioniert auch ohne JavaScript, dann ohne Filter und ohne Live-Update.
