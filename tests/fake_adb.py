@@ -13,6 +13,8 @@ FAKE_ADB_DUMP_FAIL=pkg1,pkg2 answers "dumpsys package" for these apps with an er
 FAKE_ADB_DUMP_FLAKY=<file> answers the first "dumpsys package" with an error, later ones normally.
 FAKE_ADB_NO_SHA256SUM=1 makes on-device hashing fail (old Android without sha256sum).
 FAKE_ADB_ADMIN=1 refuses "pm uninstall" like for an app registered as device administrator.
+FAKE_ADB_DROPPER=new|old|granted adds a store QR-scanner app that asks to install further apps (dropper),
+installed today or weeks ago; "granted" means it is also allowed to.
 FAKE_ADB_SDK=<n> overrides the Android API level (default 33, INFIZIERT01 31).
 FAKE_ADB_CRLF=1 ends lines with \r\n, like Windows and old adb shells.
 """
@@ -29,6 +31,9 @@ import os
 import sys
 
 new_app = os.environ.get("FAKE_ADB_NEWAPP") == "1"
+# store app that wants to install further apps, like the QR-scanner droppers of banking trojans
+dropper = os.environ.get("FAKE_ADB_DROPPER")  # "new" (installed today), "old" (weeks ago), "granted" (new, allowed)
+DROPPER = "com.qr.scanner.free"
 if os.environ.get("FAKE_ADB_CRLF") == "1":  # behave like Windows / old adb shell: \r\n line endings
     sys.stdout.reconfigure(newline="\r\n")
 a = sys.argv[1:]
@@ -138,6 +143,8 @@ elif cmd.startswith("appops get "):
         print("SYSTEM_ALERT_WINDOW: allow; time=+2d1h ago\nUid mode: REQUEST_INSTALL_PACKAGES: allow\nMANAGE_EXTERNAL_STORAGE: allow")
     elif pkg == "com.whatsapp":
         print("SYSTEM_ALERT_WINDOW: allow\nREQUEST_INSTALL_PACKAGES: default")
+    elif pkg == DROPPER and dropper == "granted":
+        print("REQUEST_INSTALL_PACKAGES: allow")
     else:
         print("No operations.")
 elif cmd == "dumpsys netstats detail":
@@ -161,12 +168,14 @@ elif cmd == "pm list packages -U":
           ("com.google.android.marvin.talkback", 10130)] + SYSTEM_PACKAGES
     if bad: pk += [("com.systemservice", 10250), ("com.example.flashlight", 10251), ("com.yowhatsapp", 10252)]
     if new_app and not bad: pk += [("com.example.flashlight", 10251)]
+    if dropper: pk += [(DROPPER, 10260)]
     print("\n".join(f"package:{p} uid:{u}" for p, u in pk))
 elif cmd == "pm list packages":
     pk = ["android", "com.google.android.gms", "com.whatsapp", "com.google.android.marvin.talkback"]
     pk += [p for p, _ in SYSTEM_PACKAGES]
     if bad: pk += ["com.systemservice", "com.example.flashlight"]
     if new_app and not bad: pk += ["com.example.flashlight"]
+    if dropper: pk += [DROPPER]
     print("\n".join("package:" + p for p in pk))
 elif cmd == "pm list packages -3 -i -U":
     print("package:com.whatsapp installer=com.android.vending uid:10200")
@@ -174,9 +183,12 @@ elif cmd == "pm list packages -3 -i -U":
         print("package:com.systemservice  installer=null uid:10250")
     if bad or new_app:
         print("package:com.example.flashlight installer=com.google.android.packageinstaller uid:10251")
+    if dropper:
+        print(f"package:{DROPPER} installer=com.android.vending uid:10260")
 elif cmd.startswith("cmd package query-activities"):
     print("priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=false\ncom.whatsapp/.Main")
     if bad or new_app: print("com.example.flashlight/.Main")
+    if dropper: print(f"{DROPPER}/.Scan")
 elif cmd.startswith("dumpsys package "):
     pkg = cmd.split()[-1]
     if pkg in os.environ.get("FAKE_ADB_DUMP_FAIL", "").split(","):
@@ -189,10 +201,13 @@ elif cmd.startswith("dumpsys package "):
         sys.exit(0)
     perms = {"com.whatsapp": ["android.permission.CAMERA", "android.permission.READ_CONTACTS"],
              "com.systemservice": ["android.permission.CAMERA", "android.permission.RECORD_AUDIO", "android.permission.READ_SMS", "android.permission.ACCESS_FINE_LOCATION"],
-             "com.example.flashlight": ["android.permission.CAMERA", "android.permission.READ_CONTACTS"]}[pkg]
-    print(f"Packages:\n  Package [{pkg}] (abc):\n    versionName=1.0\n    firstInstallTime=2026-09-01 10:00:00\n    lastUpdateTime=2026-09-01 10:00:00")
+             "com.example.flashlight": ["android.permission.CAMERA", "android.permission.READ_CONTACTS"],
+             DROPPER: ["android.permission.CAMERA"]}[pkg]
+    installed = (time.strftime("%Y-%m-%d %H:%M:%S") if pkg == DROPPER and dropper != "old" else "2026-09-01 10:00:00")
+    print(f"Packages:\n  Package [{pkg}] (abc):\n    versionName=1.0\n    firstInstallTime={installed}\n    lastUpdateTime={installed}")
     print("    requested permissions:")
-    for p in perms + ["android.permission.INTERNET", "android.permission.READ_SMS, restricted"]: print("      " + p)
+    extra = ["android.permission.REQUEST_INSTALL_PACKAGES"] if pkg == DROPPER else []
+    for p in perms + extra + ["android.permission.INTERNET", "android.permission.READ_SMS, restricted"]: print("      " + p)
     print("    install permissions:\n      android.permission.INTERNET: granted=true")
     print("    User 0: ceDataInode=1 installed=true\n      runtime permissions:")
     for p in perms:
