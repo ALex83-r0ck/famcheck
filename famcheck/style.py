@@ -133,6 +133,13 @@ td.num{white-space:nowrap}
 border-radius:6px;background:var(--surface);color:var(--fg)}
 .compare button{background:var(--accent);border-color:var(--accent);color:var(--surface);cursor:pointer}
 .compare :focus-visible{outline:3px solid var(--accent);outline-offset:1px}
+.steps{font-size:.85rem;color:var(--fg);background:var(--sunken);border-radius:8px;padding:8px 12px;margin-top:6px}
+.steps ol,.cleanup ol{margin:4px 0;padding-left:1.4em}
+.steps li,.cleanup li{margin:2px 0}
+.finding .steps{grid-column:2}
+.cleanup{margin-top:6px}
+.cleanup summary{cursor:pointer;color:var(--accent);font-size:.82rem;width:max-content;max-width:100%}
+.cleanup ol{font-size:.88rem}
 .rename{margin-top:6px}
 .rename summary{cursor:pointer;color:var(--accent);font-size:.82rem;width:max-content}
 .rename form{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}

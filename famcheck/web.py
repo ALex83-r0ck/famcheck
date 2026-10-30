@@ -20,7 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote
 
-from . import decisions, fix, iocs
+from . import decisions, fix, guides, iocs
 from .report import ROLE_LABELS, compute_diff, install_info, render_html, source_label
 from .style import CSS, HEADLINE, ICON, SEV_KEY, SEV_LABEL, local_time
 from .style import chips as _chips
@@ -345,7 +345,7 @@ STATE_TAGS = {"suppressed": ("", None), "watch": ("Beobachten", ""), "changed": 
               "reopened": ("wieder offen", "warn")}
 
 
-def _finding_html(serial: str, f: dict, token: str, all_findings: list[dict], rank: int) -> str:
+def _finding_html(serial: str, f: dict, token: str, all_findings: list[dict], rank: int, props: dict) -> str:
     key = SEV_KEY.get(f["severity"], "ok")
     sev = SEV_KEY.get(f["severity"], "info")  # for the filter, INFO stays its own group
     label = SEV_LABEL.get(SEV_KEY.get(f["severity"]), "Info")
@@ -370,7 +370,7 @@ def _finding_html(serial: str, f: dict, token: str, all_findings: list[dict], ra
             f"data-search='{escape(search)}'>"
             f"<summary><span class='chip s-{key}'>{label}</span><b>{escape(f['title'])}</b>{tag}</summary>"
             f"<div class='fbody'><span class='a'>{escape(f['detail'])}<br>→ {escape(f['action'])}</span>"
-            f"{_fix_hint(serial, f, all_findings)}{_decision_html(f)}{form}</div></details>")
+            f"{guides.steps_html(f, props, all_findings)}{_fix_hint(serial, f, all_findings)}{_decision_html(f)}{form}</div></details>")
 
 
 def _toolbar(findings: list[dict]) -> str:
@@ -422,12 +422,12 @@ def render_device(serial: str, scans: list[dict], devices: dict, now: datetime |
     hidden = [f for f in last["triaged"] if f["decision_state"] == "suppressed"]
     rank = {id(f): i for i, f in enumerate(last["triaged"])}
     findings = (_toolbar(last["triaged"]) + "<div data-findings>"
-                + ("".join(_finding_html(serial, f, token, last["findings"], rank[id(f)]) for f in active)
+                + ("".join(_finding_html(serial, f, token, last["findings"], rank[id(f)], props) for f in active)
                    or "<p class='muted' style='margin:0'>Keine offenen Befunde.</p>") + "</div>")
     if hidden:
         findings += (f"<details class='triaged'><summary>Eingeordnet ({len(hidden)}), zählen nicht zur Ampel</summary>"
                      "<div data-findings>"
-                     + "".join(_finding_html(serial, f, token, last["findings"], rank[id(f)]) for f in hidden)
+                     + "".join(_finding_html(serial, f, token, last["findings"], rank[id(f)], props) for f in hidden)
                      + "</div></details>")
     def compare_link(prev, cur):
         if not prev:
@@ -451,7 +451,7 @@ def render_device(serial: str, scans: list[dict], devices: dict, now: datetime |
             f"{escape(props.get('ro.product.model', ''))} · Android {escape(props.get('ro.build.version.release', '?'))} · "
             f"Patch <span class='num'>{escape(props.get('ro.build.version.security_patch', '?'))}</span> · "
             f"<span class='mono'>{escape(serial)}</span> · Letzter Scan {_ago(_started(last), now)}</div>"
-            f"{_rename_form(serial, last['name'], token)}"
+            f"{_rename_form(serial, last['name'], token)}{guides.cleanup_html(props)}"
             f"<div class='state s-{w}' style='margin-top:12px'><span class='big d-{w}'>{ICON[w]}</span>{HEADLINE[w]}</div></div>"
             f"<div class='panel'><h2>Seit letztem Scan</h2>{diff}</div>"
             f"<div class='panel'><h2>Befunde</h2><p class='muted small' style='margin:0 0 6px'>Einordnen ändert nichts "
