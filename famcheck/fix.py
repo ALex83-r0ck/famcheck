@@ -380,7 +380,7 @@ def run_undo(fix_dir: Path, cases_root: Path, input_fn=input, print_fn=print) ->
 
 # Findings about one app where deinstalling is a sensible way out (offered as a command in the dashboard)
 REMOVABLE = ("App außerhalb eines Stores installiert:", "Versteckte App mit Zugriff auf Privates:",
-             "Hoher Upload durch App aus fremder Quelle:")
+             "Hoher Upload durch App aus fremder Quelle:", "Neue App will weitere Apps installieren:")
 PACKAGE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$")
 
 

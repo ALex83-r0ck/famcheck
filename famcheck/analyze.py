@@ -36,6 +36,16 @@ APPOP_LABELS = {
     "MANAGE_EXTERNAL_STORAGE": "Zugriff auf alle Dateien inkl. Fotos",
 }
 
+NEW_APP_DAYS = 14
+# Apps whose job is to install other apps or open downloaded files. For them asking to install apps is normal.
+INSTALLER_APPS = {
+    "com.android.chrome", "org.mozilla.firefox", "org.mozilla.firefox_beta", "org.mozilla.focus",
+    "com.brave.browser", "com.opera.browser", "com.opera.mini.native", "com.microsoft.emmx",
+    "com.sec.android.app.sbrowser", "com.duckduckgo.mobile.android", "com.vivaldi.browser",
+    "com.google.android.apps.nbu.files", "com.sec.android.app.myfiles", "org.fdroid.fdroid",
+    "org.telegram.messenger",
+}
+
 MB = 1024 * 1024
 UPLOAD_ALERT_BG = 50 * MB      # background upload by a non-store app
 UPLOAD_ALERT_TOTAL = 200 * MB  # total upload by a non-store app
@@ -149,6 +159,13 @@ def coverage_findings(data: dict) -> list[dict]:
 DONT_DELETE = ("NICHT sofort löschen: Wer sie installiert hat, merkt das evtl. "
                "Erst Ergebnis sichern, Sicherheit der Person klären, dann Hilfe holen "
                "(z. B. Hilfetelefon 116 016 bei häuslicher Gewalt).")
+
+
+def _installed_days_ago(app: dict, today: date) -> int | None:
+    try:
+        return (today - date.fromisoformat((app.get("first_install") or "")[:10])).days
+    except ValueError:
+        return None
 
 
 def _finding(sev, title, detail, action, pkg=None):
@@ -391,7 +408,24 @@ def analyze(data: dict, today: date | None = None) -> list[dict]:
                 "Kurz prüfen, ob bekannt.", pkg))
 
         ops = app.get("appops", [])
-        if "REQUEST_INSTALL_PACKAGES" in ops:
+        # Dropper: a harmless-looking new app (QR scanner, PDF reader, flashlight) from the Play Store that
+        # later loads the actual malware as "update". Banking trojans like Anatsa/TeaBot work this way.
+        age = _installed_days_ago(app, today)
+        dropper = (age is not None and -1 <= age <= NEW_APP_DAYS
+                   and "android.permission.REQUEST_INSTALL_PACKAGES" in app.get("requested", [])
+                   and pkg not in TRUSTED_STORES and pkg not in INSTALLER_APPS)
+        if dropper:
+            allowed = "REQUEST_INSTALL_PACKAGES" in ops
+            when = "Heute" if age <= 0 else ("Gestern" if age == 1 else f"Vor {age} Tagen")
+            findings.append(_finding(
+                "HOCH" if allowed else "MITTEL", f"Neue App will weitere Apps installieren: {pkg}",
+                f"{when} installiert (Quelle: {store or app['installer'] or 'unbekannt'}). Sie fordert das Recht an, "
+                "weitere Apps zu installieren" + (", und hat es bereits bekommen" if allowed else "") + ". Für einen "
+                "QR-Scanner, PDF-Reader oder eine Taschenlampe ist das untypisch: So laden Banking-Trojaner "
+                "(z. B. Anatsa/TeaBot) über eine harmlos wirkende App aus dem Play Store ihren Schadcode nach.",
+                "Wer hat die App installiert und wofür? Den VirusTotal-Link in der App-Tabelle prüfen. "
+                "Wird sie nicht gebraucht: deinstallieren.", pkg))
+        if "REQUEST_INSTALL_PACKAGES" in ops and not dropper:
             findings.append(_finding(
                 "NIEDRIG" if store else "MITTEL", f"Darf weitere Apps installieren: {pkg}",
                 "Über diese App lassen sich APKs an Google Play vorbei installieren.",

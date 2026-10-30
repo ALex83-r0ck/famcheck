@@ -132,6 +132,7 @@ TOPICS = [
     ("Versteckte App mit Zugriff auf Privates:", "app_info"),
     ("App außerhalb eines Stores installiert:", "app_info"),
     ("Hoher Upload durch App aus fremder Quelle:", "app_info"),
+    ("Neue App will weitere Apps installieren:", "app_info"),
     ("USB-Debugging ist an", "usb_debugging"),
     ("Kabelloses Debugging ist an", "wifi_debugging"),
     ("Per USB installierte Apps werden nicht geprüft", "verify_adb"),

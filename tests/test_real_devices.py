@@ -17,7 +17,7 @@ from famcheck.style import uploads_html  # noqa: E402
 LEGACY = "Installation aus unbekannten Quellen erlaubt (global)"
 
 
-class RealDeviceLessons(unittest.TestCase):
+class ScanHelper(unittest.TestCase):
     def scan(self, **env):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -28,6 +28,8 @@ class RealDeviceLessons(unittest.TestCase):
         load = lambda name: json.loads((case / name).read_text(encoding="utf-8"))  # noqa: E731
         return load("findings.json")["findings"], load("data.json")
 
+
+class RealDeviceLessons(ScanHelper):
     def test_legacy_unknown_sources_only_before_android_8(self):
         """Android 8+ always reports install_non_market_apps=1; per-app check covers it there."""
         modern, _ = self.scan()
@@ -50,6 +52,45 @@ class RealDeviceLessons(unittest.TestCase):
         self.assertNotIn("uid -1", html)
         self.assertNotIn("673", html)
         self.assertIn("System (Kernel)", html)
+
+
+class DropperTest(ScanHelper):
+    """Neighbour's Galaxy A05s: two QR scanners from the Play Store, installed the same day. Store apps
+    that ask to install more apps are how banking trojans like Anatsa get onto phones."""
+
+    TITLE = "Neue App will weitere Apps installieren: com.qr.scanner.free"
+
+    def by_title(self, **env):
+        findings, _ = self.scan(**env)
+        return {f["title"]: f for f in findings}
+
+    def test_new_store_app_asking_to_install_apps(self):
+        f = self.by_title(FAKE_ADB_DROPPER="new")[self.TITLE]
+        self.assertEqual(f["severity"], "MITTEL")
+        self.assertIn("Heute installiert (Quelle: Google Play)", f["detail"])
+        self.assertIn("Anatsa", f["detail"])
+
+    def test_already_allowed_is_high_and_not_reported_twice(self):
+        titles = self.by_title(FAKE_ADB_DROPPER="granted")
+        self.assertEqual(titles[self.TITLE]["severity"], "HOCH")
+        self.assertIn("und hat es bereits bekommen", titles[self.TITLE]["detail"])
+        self.assertNotIn("Darf weitere Apps installieren: com.qr.scanner.free", titles)
+
+    def test_old_app_is_not_reported(self):
+        self.assertNotIn(self.TITLE, self.by_title(FAKE_ADB_DROPPER="old"))
+
+    def test_browsers_and_file_managers_may_ask(self):
+        from datetime import date
+        from famcheck.analyze import analyze
+        _, data = self.scan(FAKE_ADB_DROPPER="new")
+        data["apps"]["com.android.chrome"] = data["apps"].pop("com.qr.scanner.free")
+        self.assertFalse([f for f in analyze(data, date.today()) if f["title"].startswith("Neue App will")])
+
+    def test_dashboard_offers_steps_and_remove(self):
+        from famcheck import fix, guides
+        f = self.by_title(FAKE_ADB_DROPPER="new")[self.TITLE]
+        self.assertTrue(fix.removable(f, [f]))
+        self.assertIn("Deinstallieren", guides.steps_html(f, {"ro.product.manufacturer": "samsung"}, [f]))
 
 
 if __name__ == "__main__":

@@ -72,6 +72,7 @@ Scan, nach einem `scan --label "Handy Papa"` erkennt `watch` es also wieder.
 |---|---|
 | Paketnamen gegen die Indikatoren von [Echap](https://github.com/AssoEchap/stalkerware-indicators) und [MVT](https://github.com/mvt-project/mvt-indicators) | bekannte Stalker- und Spyware (mSpy, TheTruthSpy, BTMOB, NoviSpy, …) |
 | App-Dateien aus fremder Quelle: SHA-256 und Signaturzertifikat gegen dieselben Listen | erkennt auch **umbenannte** Spyware an ihrer Signatur |
+| Neue App (≤ 14 Tage) fordert „Apps installieren“ an, außer Stores, Browsern und Dateimanagern | Türöffner von Banking-Trojanern (z. B. Anatsa/TeaBot) tarnen sich als QR-Scanner oder PDF-Reader im Play Store |
 | Store-Apps: SHA-256, auf dem Handy berechnet, gegen dieselben Listen; VirusTotal-Link im Bericht | Türöffner (falsche PDF-Reader, QR-Scanner) kommen oft aus dem Play Store |
 | Aktive Bedienungshilfen von Dritt-Apps | Bildschirm mitlesen / Keylogging |
 | Benachrichtigungszugriff, Geräteadministratoren | Nachrichten mitlesen, Deinstallationsschutz |
