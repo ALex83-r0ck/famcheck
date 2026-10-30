@@ -879,24 +879,38 @@ class DashboardServer(ThreadingHTTPServer):
         super().server_bind()
 
 
-def create_server(cases_root: Path, port: int, scan=None) -> DashboardServer:
+def create_server(cases_root: Path, port: int, scan=None, ask=None) -> DashboardServer:
+    """ask: function for a [j/N] question in the terminal. With it, an older FamCheck on the port is
+    offered for stopping; without it (tests, no terminal) the manual steps are shown."""
     try:
         return DashboardServer(("127.0.0.1", port), make_handler(cases_root, port, scan))
     except OSError as e:
-        raise SystemExit(PORT_BUSY.format(port=port)) from e
+        busy = e
+    if ask:
+        from .portcheck import offer_to_stop
+        if offer_to_stop(port, ask):
+            try:
+                return DashboardServer(("127.0.0.1", port), make_handler(cases_root, port, scan))
+            except OSError as e:
+                busy = e
+    raise SystemExit(PORT_BUSY.format(port=port)) from busy
+
+
+def _terminal_ask():
+    return input if sys.stdin and sys.stdin.isatty() else None
 
 
 def start_background(cases_root: Path, port: int, scan=None) -> ThreadingHTTPServer:
     """Starts the dashboard in a daemon thread (used by 'watch'). The login link is
     server.RequestHandlerClass.login_url."""
     import threading
-    server = create_server(cases_root, port, scan)
+    server = create_server(cases_root, port, scan, ask=_terminal_ask())
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
 
 def serve(cases_root: Path, port: int, open_browser: bool = True, scan=None):
-    server = create_server(cases_root, port, scan)
+    server = create_server(cases_root, port, scan, ask=_terminal_ask())
     url = server.RequestHandlerClass.login_url
     print(f"FamCheck-Dashboard: {url}\n(Link gilt bis zum Beenden, Strg+C zum Beenden)")
     if open_browser:
