@@ -128,6 +128,11 @@ tr.app-new td{background:var(--high-soft)}
 tr[hidden]{display:none}
 .applinks{font-size:.78rem;margin-left:6px;white-space:nowrap}
 td.num{white-space:nowrap}
+.compare{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px;font-size:.88rem}
+.compare select,.compare button{font:inherit;font-size:.85rem;padding:5px 9px;border:1px solid var(--line);
+border-radius:6px;background:var(--surface);color:var(--fg)}
+.compare button{background:var(--accent);border-color:var(--accent);color:var(--surface);cursor:pointer}
+.compare :focus-visible{outline:3px solid var(--accent);outline-offset:1px}
 .rename{margin-top:6px}
 .rename summary{cursor:pointer;color:var(--accent);font-size:.82rem;width:max-content}
 .rename form{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
