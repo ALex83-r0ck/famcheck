@@ -105,5 +105,38 @@ class FixTest(unittest.TestCase):
         self.assertNotIn(first, out)
 
 
+class RemoveTest(FixTest):
+    """famcheck remove: deinstalls one app, asks first, refuses stalkerware, logs everything."""
+
+    def remove(self, pkg, stdin="", **env):
+        return self.famcheck("remove", "--serial", "INFIZIERT01", pkg, stdin=stdin, **env)
+
+    def test_asks_first(self):
+        out = self.remove("com.example.flashlight", stdin="n\n")
+        self.assertIn("Heikle Rechte: Kamera, Kontakte", out)
+        self.assertIn("Abgebrochen, nichts geändert.", out)
+        self.assertEqual(self.writes(), [])
+
+    def test_removes_and_marks_done(self):
+        out = self.remove("com.example.flashlight", stdin="j\n")
+        self.assertIn("Erledigt.", out)
+        self.assertEqual(self.writes(), ["INFIZIERT01: pm uninstall com.example.flashlight"])
+        log = json.loads(next(self.cases.glob("*_remove_*")).joinpath("removelog.json").read_text(encoding="utf-8"))
+        self.assertEqual((log["package"], log["status"]), ("com.example.flashlight", "ausgeführt"))
+        done = json.loads((self.cases / "decisions.json").read_text(encoding="utf-8"))["INFIZIERT01"]
+        self.assertEqual(done["App außerhalb eines Stores installiert: com.example.flashlight"]["status"], "done")
+
+    def test_refuses_stalkerware_unknown_and_system_apps(self):
+        self.assertIn("Bewusst nicht", self.remove("com.systemservice", stdin="j\n"))
+        self.assertIn("keine vom Nutzer installierte App", self.remove("com.android.system.part01", stdin="j\n"))
+        self.assertIn("keine vom Nutzer installierte App", self.remove("x;rm -rf /", stdin="j\n"))
+        self.assertEqual(self.writes(), [])
+
+    def test_device_admin_explains_what_to_do(self):
+        out = self.remove("com.example.flashlight", stdin="j\n", FAKE_ADB_ADMIN="1")
+        self.assertIn("als Geräteadministrator eingetragen", out)
+        self.assertFalse((self.cases / "decisions.json").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

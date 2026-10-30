@@ -195,6 +195,18 @@ class CompareTest(unittest.TestCase):
         self.assertIn("Einstellungen → System → Entwickleroptionen", page)
         self.assertIn("Nach dem Scan: Handy aufräumen (Google)", page)
 
+    def test_tiles_and_copy_boxes(self):
+        _, page = self.get("/device/SAUBER01")
+        self.assertIn("class='tiles'", page)
+        self.assertIn("data-sev-only='low'", page)
+        self.assertIn("data-copy='python -m famcheck fix --serial SAUBER01'", page)
+
+    def test_command_never_carries_unsafe_values(self):
+        from famcheck.web import _command
+        self.assertEqual(_command("fix", "ABC123"), "python -m famcheck fix --serial ABC123")
+        self.assertEqual(_command("fix", "x; Remove-Item C:\\"), "python -m famcheck fix")  # serial dropped
+        self.assertEqual(_command("fix", "192.168.0.5:5555"), "python -m famcheck fix --serial 192.168.0.5:5555")
+
     def test_compare_any_two(self):
         first, middle, last = self.scans
         _, page = self.get(f"/vergleich/SAUBER01?a={first}&b={middle}")
@@ -251,6 +263,17 @@ class GuideTest(unittest.TestCase):
         self.assertEqual(guides.steps_html(admin, self.SAMSUNG, [crit, admin]), "")
         self.assertEqual(guides.steps_html(crit, self.SAMSUNG, [crit, admin]), "")
 
+    def test_remove_command_only_where_safe(self):
+        from famcheck.web import _fix_hint
+        app = self.finding("App außerhalb eines Stores installiert: com.example.flashlight", "MITTEL", "com.example.flashlight")
+        spy = self.finding("Bekannte Spyware: X", "KRITISCH", "com.spy")
+        spy_app = self.finding("Versteckte App mit Zugriff auf Privates: com.spy", "HOCH", "com.spy")
+        odd = self.finding("App außerhalb eines Stores installiert: a;b", "MITTEL", "a;b")
+        self.assertIn("data-copy='python -m famcheck remove --serial S1 com.example.flashlight'",
+                      _fix_hint("S1", app, [app]))
+        self.assertNotIn("remove", _fix_hint("S1", spy_app, [spy, spy_app]))  # stalkerware: never
+        self.assertNotIn("remove", _fix_hint("S1", odd, [odd]))  # odd package name: no remove command
+
     def test_cleanup_and_report(self):
         self.assertIn("Automatische Sperre", guides.cleanup_html(self.SAMSUNG))
         self.assertNotIn("Automatische Sperre", guides.cleanup_html(self.MOTO))
@@ -258,6 +281,8 @@ class GuideTest(unittest.TestCase):
         meta = {"label": "x", "serial": "s", "started": SCAN, "tool_version": "0", "ioc_sha256": "0" * 64}
         html = render_html(meta, {"props": self.SAMSUNG, "apps": {}}, [f])
         self.assertIn("Entwickleroptionen (ganz unten)", html)
+        self.assertIn("<div class='tiles'><div class='tile s-crit zero'", html)  # static in the stored report
+        self.assertNotIn("data-sev-only", html)
 
 
 if __name__ == "__main__":

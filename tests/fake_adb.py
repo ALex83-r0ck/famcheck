@@ -12,6 +12,7 @@ FAKE_ADB_NO_NETSTATS=1 returns no data usage statistics.
 FAKE_ADB_DUMP_FAIL=pkg1,pkg2 answers "dumpsys package" for these apps with an error message (seen on a real device).
 FAKE_ADB_DUMP_FLAKY=<file> answers the first "dumpsys package" with an error, later ones normally.
 FAKE_ADB_NO_SHA256SUM=1 makes on-device hashing fail (old Android without sha256sum).
+FAKE_ADB_ADMIN=1 refuses "pm uninstall" like for an app registered as device administrator.
 FAKE_ADB_SDK=<n> overrides the Android API level (default 33, INFIZIERT01 31).
 FAKE_ADB_CRLF=1 ends lines with \r\n, like Windows and old adb shells.
 """
@@ -69,6 +70,8 @@ if any(cmd.startswith(w) for w in WRITES):
     elif parts[:2] == ["pm", "grant"] and f"{parts[2]} {parts[3]}" in state.get("revoked", []):
         state["revoked"].remove(f"{parts[2]} {parts[3]}")
     Path(STATE_FILE).write_text(json.dumps(state))
+    if parts[:2] == ["pm", "uninstall"]:
+        print("Failure [DELETE_FAILED_DEVICE_POLICY_MANAGER]" if os.environ.get("FAKE_ADB_ADMIN") == "1" else "Success")
     sys.exit(0)
 props = {"ro.product.manufacturer": "samsung" if bad else "Google",
          "ro.product.model": "SM-A525F" if bad else "Pixel 7",

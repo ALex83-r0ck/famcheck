@@ -123,6 +123,39 @@
     }
   });
 
+  // tiles: show only one severity, a second click shows all again
+  document.addEventListener("click", (e) => {
+    const tile = e.target.closest("[data-sev-only]");
+    if (!tile) return;
+    const sev = tile.dataset.sevOnly;
+    state.sev = state.sev.size === 1 && state.sev.has(sev) ? new Set(SEVS) : new Set([sev]);
+    save();
+    applyFilters();
+    const list = document.querySelector("[data-findings]");
+    if (list) list.closest(".panel").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+
+  // copy a terminal command; the dashboard never runs anything itself
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-copy]");
+    if (!b) return;
+    const text = b.dataset.copy;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      const code = b.parentElement.querySelector("code");
+      const range = document.createRange();
+      range.selectNodeContents(code);
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+      if (!document.execCommand("copy")) {
+        toast("Kopieren nicht möglich, Befehl ist markiert: Strg+C drücken", true);
+        return;
+      }
+    }
+    toast("Kopiert. Im Terminal (famcheck-Ordner) mit Rechtsklick einfügen und Enter drücken.");
+  });
+
   document.addEventListener("input", (e) => {
     if (e.target.id === "f-search") {
       state.q = e.target.value.trim().toLowerCase();
