@@ -277,6 +277,28 @@
     }
   });
 
+  // ---- "Am Handy öffnen": opens a screen on the phone, the change is made there by a tap ----------------
+  document.addEventListener("submit", async (e) => {
+    const form = e.target.closest("form.phone");
+    if (!form) return;
+    e.preventDefault();
+    const button = form.querySelector("button");
+    button.disabled = true;
+    try {
+      const r = await fetch(form.action, { method: "POST", body: new URLSearchParams(new FormData(form)),
+                                           credentials: "same-origin" });
+      if (r.status === 401) return restarted();
+      if (!r.ok) throw new Error((await r.text()).slice(0, 200));
+      const uninstall = form.querySelector("[name=what]").value === "uninstall";
+      toast(uninstall ? "Am Handy erscheint jetzt „Deinstallieren?“. Dort mit OK bestätigen oder abbrechen."
+                      : "Am Handy geöffnet. Falls gesperrt: entsperren, dann dort weitermachen.");
+    } catch (err) {
+      toast(err.message, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
   // ---- live update ----------------------------------------------------------------------------------
   async function version() {
     const r = await fetch("/api/version", { credentials: "same-origin", cache: "no-store" });

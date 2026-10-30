@@ -5,6 +5,7 @@ the search field at the top of the settings finds the page even where the path i
 Nothing here touches the phone; it only produces text for report and dashboard.
 """
 
+import re
 from html import escape
 
 SAMSUNG = "samsung"
@@ -161,6 +162,53 @@ CLEANUP = {
 }
 
 
+# "Am Handy öffnen": the screen on the phone where the user does the step themselves. Only screens are opened,
+# nothing is changed; uninstalling goes through Android's own dialog, confirmed by a tap on the phone.
+# {pkg} is replaced by the (checked and quoted) package name.
+PHONE_SCREENS = {
+    "accessibility": "android.settings.ACCESSIBILITY_SETTINGS",
+    "notifications": "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS",
+    "device_admin": "android.settings.SECURITY_SETTINGS",
+    "install_apps": "android.settings.MANAGE_UNKNOWN_APP_SOURCES -d package:{pkg}",
+    "special_access": "android.settings.action.MANAGE_OVERLAY_PERMISSION -d package:{pkg}",
+    "battery": "android.settings.APPLICATION_DETAILS_SETTINGS -d package:{pkg}",
+    "app_info": "android.settings.APPLICATION_DETAILS_SETTINGS -d package:{pkg}",
+    "usb_debugging": "android.settings.APPLICATION_DEVELOPMENT_SETTINGS",
+    "wifi_debugging": "android.settings.APPLICATION_DEVELOPMENT_SETTINGS",
+    "verify_adb": "android.settings.APPLICATION_DEVELOPMENT_SETTINGS",
+    "screen_lock": "android.app.action.SET_NEW_PASSWORD",
+    "private_dns": "android.settings.WIRELESS_SETTINGS",
+    "sms_app": "android.settings.MANAGE_DEFAULT_APPS_SETTINGS",
+    "accounts": "android.settings.SYNC_SETTINGS",
+    "vpn": "android.settings.VPN_SETTINGS",
+}
+UNINSTALL = "android.intent.action.DELETE -d package:{pkg}"
+PACKAGE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$")
+
+
+def _stalkerware(finding: dict, findings: list[dict]) -> bool:
+    pkg = finding.get("package")
+    return finding["severity"] == "KRITISCH" or bool(
+        pkg and any(f["severity"] == "KRITISCH" and f.get("package") == pkg for f in findings))
+
+
+def phone_actions(finding: dict, findings: list[dict], removable: bool = False) -> dict[str, str]:
+    """{"open": am-start arguments, "uninstall": ...} for the "Am Handy öffnen" buttons. Empty for stalkerware
+    (whoever installed it may notice) and for package names that are not plain package names."""
+    if _stalkerware(finding, findings):
+        return {}
+    pkg = finding.get("package") or ""
+    if pkg and not PACKAGE_RE.match(pkg):
+        return {}
+    out = {}
+    screen = PHONE_SCREENS.get(topic(finding) or "")
+    if screen and ("{pkg}" not in screen or pkg):
+        out["open"] = screen.replace("{pkg}", pkg)
+    if removable and pkg:
+        out["uninstall"] = UNINSTALL.replace("{pkg}", pkg)
+    return out
+
+
 def vendor(props: dict) -> tuple[str, str]:
     """(guide key, label shown above the steps)."""
     maker = (props.get("ro.product.manufacturer") or "").strip()
@@ -183,11 +231,9 @@ def steps_html(finding: dict, props: dict, findings: list[dict]) -> str:
     Apps with a KRITISCH finding get none on purpose: whoever installed stalkerware may notice its
     removal; the finding's own text says to secure evidence and the person's safety first."""
     key = topic(finding)
-    if not key or finding["severity"] == "KRITISCH":
+    if not key or _stalkerware(finding, findings):
         return ""
     pkg = finding.get("package")
-    if pkg and any(f["severity"] == "KRITISCH" and f.get("package") == pkg for f in findings):
-        return ""
     guide = GUIDES[key]
     vkey, label = vendor(props)
     app = f"<span class='mono'>{escape(pkg)}</span>" if pkg else "die App"

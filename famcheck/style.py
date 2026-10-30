@@ -198,6 +198,11 @@ color:var(--surface);cursor:pointer;width:100%}
 .panel .scan-now button{width:auto}
 .connected{display:grid;gap:6px;margin-top:14px;border-top:1px dashed var(--line);padding-top:12px}
 .connected .scan-now button{width:100%}
+.phone-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+.phone-actions button{font:inherit;font-size:.85rem;font-weight:600;padding:7px 14px;border-radius:999px;cursor:pointer;
+border:1px solid var(--accent);background:var(--surface);color:var(--accent)}
+.phone-actions button:hover{background:var(--accent);color:var(--surface)}
+.phone-actions button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 .rename{margin-top:6px}
 .rename summary{cursor:pointer;color:var(--accent);font-size:.82rem;width:max-content}
 .rename form{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}

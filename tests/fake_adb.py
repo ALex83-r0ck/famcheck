@@ -59,6 +59,12 @@ if os.environ.get("FAKE_ADB_NO_NETSTATS") == "1" and cmd == "dumpsys netstats de
     sys.exit(0)
 STATE_FILE = os.environ.get("FAKE_ADB_STATE")
 state = json.loads(Path(STATE_FILE).read_text(encoding="utf-8")) if STATE_FILE and Path(STATE_FILE).exists() else {}
+if cmd.startswith("am start "):  # opens a screen on the phone; recorded, but it changes nothing
+    if STATE_FILE:
+        state.setdefault("opened", []).append(f"{serial}: {cmd}")
+        Path(STATE_FILE).write_text(json.dumps(state))
+    print(f"Starting: Intent {{ act={cmd.split()[3]} }}")
+    sys.exit(0)
 WRITES = ("settings put ", "settings delete ", "appops set ", "pm revoke ", "pm grant ", "pm disable-user ",
           "pm enable ", "cmd deviceidle whitelist ", "cmd notification ", "pm uninstall")
 if any(cmd.startswith(w) for w in WRITES):
