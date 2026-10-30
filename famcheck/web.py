@@ -133,13 +133,13 @@ def _sorted_devices(devices: dict[str, list[dict]]) -> list[tuple[str, list[dict
                                                    kv[1][-1]["name"].lower()))
 
 
-def _page(title: str, active: str, body: str, devices: dict) -> str:
+def _page(title: str, active: str, body: str, devices: dict, summary: bool = True) -> str:
     counts: dict[str, int] = {}
     for scans in devices.values():
         w = _worst(scans[-1]["counting"])
         counts[w] = counts.get(w, 0) + 1
-    summary = "".join(f"<span class='chip s-{k}'>{counts[k]} × {HEADLINE[k]}</span>"
-                      for k in HEADLINE if counts.get(k))
+    chips_row = "<div class='summary'>" + "".join(f"<span class='chip s-{k}'>{counts[k]} × {HEADLINE[k]}</span>"
+                                                  for k in HEADLINE if counts.get(k)) + "</div>"
     nav = "".join(f"<a href='{href}'{' aria-current=page' if key == active else ''}>{label}</a>"
                   for key, href, label in (("overview", "/", "Übersicht"), ("history", "/verlauf", "Verlauf")))
     return (f"<!doctype html><html lang='de'><head><meta charset='utf-8'>"
@@ -147,7 +147,7 @@ def _page(title: str, active: str, body: str, devices: dict) -> str:
             f"<title>{escape(title)}</title><style>{CSS}</style>"
             f"<script src='/static/app.js' defer></script></head><body><main>"
             f"<div class='top'><h1>FamCheck</h1><nav class='nav'>{nav}</nav></div>"
-            f"{_banner()}<div class='summary'>{summary}</div>{body}</main></body></html>")
+            f"{_banner()}{chips_row if summary else ''}{body}</main></body></html>")
 
 
 def _banner() -> str:
@@ -155,29 +155,131 @@ def _banner() -> str:
     return f"<div class='banner' role='status'><b>Hinweis:</b> {escape(warning)}</div>" if warning else ""
 
 
+SEV_ORDER = {"KRITISCH": 0, "HOCH": 1, "MITTEL": 2, "NIEDRIG": 3, "INFO": 4}
+ATTENTION = ("crit", "high", "mid")  # these need a look; "low" and "ok" do not
+FEED_SCANS = 5   # how many recent scans per device feed "Was ist neu"
+FEED_ITEMS = 8
+
+START_STEPS = ("<div class='panel'><h2>Neues Handy prüfen</h2><div class='steps3'>"
+               "<div><b>1</b><code>FamCheck.bat</code> starten</div>"
+               "<div><b>2</b>Handy per USB anstecken und entsperren</div>"
+               "<div><b>3</b>Am Handy „USB-Debugging zulassen“ tippen, der Scan startet von selbst</div></div></div>")
+
+
+def _hero(devices: dict, ordered: list, now: datetime) -> str:
+    need = [(serial, scans) for serial, scans in ordered if _worst(scans[-1]["counting"]) in ATTENTION]
+    n = len(devices)
+    if need:
+        if n == 1:
+            title = "Das Handy braucht deine Aufmerksamkeit"
+        else:
+            title = (f"{len(need)} von {n} Handys braucht deine Aufmerksamkeit" if len(need) == 1
+                     else f"{len(need)} von {n} Handys brauchen deine Aufmerksamkeit")
+        serial, scans = need[0]
+        top = sorted(scans[-1]["counting"], key=lambda f: SEV_ORDER.get(f["severity"], 4))[0]
+        text = f"„{escape(scans[-1]['name'])}“: {escape(top['title'])}."
+        if len(need) < n:
+            text += " Die anderen Geräte sind unauffällig."
+    else:
+        title = "Alles im grünen Bereich" if n > 1 else "Das Handy ist unauffällig"
+        text = f"{n} Handy{'s' if n > 1 else ''} ohne offene Befunde, die Aufmerksamkeit brauchen."
+    newest = max(_started(scans[-1]) for scans in devices.values())
+    text += f" Letzter Scan {_ago(newest, now)}."
+    every = [f for scans in devices.values() for f in scans[-1]["counting"]]
+    return (f"<div class='panel hero'><h2>{title}</h2><p>{text}</p>{tiles(every)}</div>")
+
+
+def _device_card(serial: str, scans: list[dict], now: datetime) -> str:
+    last = scans[-1]
+    props = last["data"]["props"]
+    w = _worst(last["counting"])
+    model = " ".join(x for x in (props.get("ro.product.manufacturer", "").capitalize(), props.get("ro.product.model", ""))
+                     if x)
+    android = props.get("ro.build.version.release")
+    if android:
+        model += f" · Android {android}"
+    open_findings = sorted((f for f in last["counting"] if f["severity"] != "INFO"),
+                           key=lambda f: SEV_ORDER.get(f["severity"], 4))
+    todo = "".join(f"<li><span class='chip s-{SEV_KEY[f['severity']]}'>{SEV_LABEL[SEV_KEY[f['severity']]]}</span>"
+                   f"<span>{escape(f['title'])}</span></li>" for f in open_findings[:2])
+    if len(open_findings) > 2:
+        todo += f"<li class='muted'>+ {len(open_findings) - 2} weitere</li>"
+    stale = (f" · <span class='stale'>neu scannen</span>" if (now - _started(last)).days >= STALE_DAYS else "")
+    url = f"/device/{escape(serial)}"
+    return (f"<article class='dev' style='--sv:var(--{w})'>"
+            f"<div><h3><a href='{url}'>{escape(last['name'])}</a></h3><div class='muted small'>{escape(model)}</div></div>"
+            f"<div class='state s-{w}'><span class='big d-{w}'>{ICON[w]}</span>{HEADLINE[w]}</div>"
+            + (f"<ul class='todo'>{todo}</ul>" if todo else "") +
+            f"{_triage_line(last['triaged'])}"
+            f"<div class='meta'><span>Letzter Scan: {_ago(_started(last), now)}, "
+            f"{escape(local_time(last['meta']['started'])[-5:])}{stale}</span>"
+            f"<span>Sicherheitspatch: <span class='num'>{escape(props.get('ro.build.version.security_patch', '?'))}</span></span>"
+            f"<span>{_change_line(last['diff'])}</span></div>"
+            f"<a class='btn-p' href='{url}'>Ansehen</a></article>")
+
+
+def _short_time(iso: str, now: datetime) -> str:
+    """'heute 13:55', 'gestern 09:10' or '28.10. 18:28', in local time."""
+    dt = datetime.fromisoformat(iso).astimezone()
+    days = (now.astimezone().date() - dt.date()).days
+    day = {0: "heute", 1: "gestern"}.get(days, f"{dt:%d.%m.}")
+    return f"{day} {dt:%H:%M}"
+
+
+def _feed(ordered: list, now: datetime) -> str:
+    """Recent changes over all devices, newest first."""
+    events = []
+    for serial, scans in ordered:
+        name = escape(scans[-1]["name"])
+        for prev, cur in list(zip([None] + scans, scans))[-FEED_SCANS:]:
+            when = cur["meta"]["started"]
+            if prev is None:
+                events.append((when, f"<b>{name}:</b> erster Scan"))
+                continue
+            items = []
+            for pkg, installer in cur["diff"]["added"].items():
+                _, foreign = source_label(installer)
+                warn = " <span class='chip s-mid'>fremde Quelle</span>" if foreign else ""
+                items.append(f"<b>{name}:</b> neue App <span class='mono'>{escape(pkg)}</span>{warn}")
+            items += [f"<b>{name}:</b> App entfernt <span class='mono'>{escape(pkg)}</span>"
+                      for pkg in cur["diff"]["removed"]]
+            before = {f["title"] for f in prev["findings"]}
+            items += [f"<b>{name}:</b> neuer Befund „{escape(f['title'])}“" for f in cur["findings"]
+                      if f["title"] not in before and f["severity"] != "INFO"]
+            events += [(when, i) for i in items] or [(when, f"<b>{name}:</b> Scan ohne Änderungen")]
+    events.sort(key=lambda e: e[0], reverse=True)
+    rows = "".join(f"<div><time>{escape(_short_time(when, now))}</time><span>{text}</span></div>"
+                   for when, text in events[:FEED_ITEMS])
+    return f"<div class='panel'><h2>Was ist neu</h2><div class='feed'>{rows}</div></div>"
+
+
+def _reminders(ordered: list, now: datetime) -> str:
+    items = []
+    for serial, scans in ordered:
+        last = scans[-1]
+        days = (now - _started(last)).days
+        if days >= STALE_DAYS:
+            items.append(f"<span class='stale'>{escape(last['name'])} seit {days} Tagen nicht gescannt</span>")
+        reopened = sum(f["decision_state"] in ("changed", "reopened") for f in last["triaged"])
+        if reopened:
+            items.append(f"<a href='/device/{escape(serial)}'>{escape(last['name'])}: {reopened} eingeordnete(r) "
+                         f"Befund(e) wieder offen</a>")
+    body = "".join(f"<div>{i}</div>" for i in items) or "<div class='muted'>Keine. Alles aktuell.</div>"
+    return f"<div class='panel'><h2>Erinnerungen</h2><div class='feed'>{body}</div></div>"
+
+
 def render_overview(devices: dict[str, list[dict]], now: datetime | None = None) -> str:
+    """Start page: how is the family doing, what changed, what to do next."""
     now = now or datetime.now(timezone.utc)
     if not devices:
-        return _page("FamCheck", "overview", "<div class='panel'>Noch keine Scans. Starte "
-                     "<code>python -m famcheck watch</code> und stecke ein Handy an.</div>", devices)
-    cards = []
-    for serial, scans in _sorted_devices(devices):
-        last = scans[-1]
-        props = last["data"]["props"]
-        w = _worst(last["counting"])
-        model = f"{props.get('ro.product.manufacturer', '')} {props.get('ro.product.model', '')}".strip()
-        stale = ((now - _started(last)).days >= STALE_DAYS and
-                 f"<span class='stale'>Lange nicht gescannt</span>") or ""
-        cards.append(
-            f"<article class='card'>"
-            f"<div><h3><a href='/device/{escape(serial)}'>{escape(last['name'])}</a></h3>"
-            f"<div class='muted small'>{escape(model)}</div></div>"
-            f"<div class='state s-{w}'><span class='big d-{w}'>{ICON[w]}</span>{HEADLINE[w]}</div>"
-            f"<div>{_chips(last['counting'])}</div>{_triage_line(last['triaged'])}"
-            f"<div class='meta'><span>Letzter Scan: {_ago(_started(last), now)} {stale}</span>"
-            f"<span>Sicherheitspatch: <span class='num'>{escape(props.get('ro.build.version.security_patch', '?'))}</span></span></div>"
-            f"<div class='chg'>{_change_line(last['diff'])}</div></article>")
-    return _page("FamCheck", "overview", f"<div class='cards'>{''.join(cards)}</div>", devices)
+        body = ("<div class='panel hero'><h2>Noch kein Handy geprüft</h2><p>So geht der erste Scan, "
+                "danach erscheinen hier alle Geräte der Familie.</p></div>" + START_STEPS)
+        return _page("FamCheck", "overview", body, devices, summary=False)
+    ordered = _sorted_devices(devices)
+    cards = "".join(_device_card(serial, scans, now) for serial, scans in ordered)
+    body = (f"{_hero(devices, ordered, now)}<div class='two'><div class='dev-list'>{cards}</div>"
+            f"<div class='side'>{_feed(ordered, now)}{_reminders(ordered, now)}{START_STEPS}</div></div>")
+    return _page("FamCheck", "overview", body, devices, summary=False)
 
 
 def render_history(devices: dict[str, list[dict]], now: datetime | None = None) -> str:

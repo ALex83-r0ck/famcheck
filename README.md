@@ -154,6 +154,11 @@ Siehe [ROADMAP.md](ROADMAP.md).
 
 ## Dashboard bedienen
 
+- **Startseite:** oben ein Satz zur Lage („1 von 3 Handys braucht deine Aufmerksamkeit“) und die Zahlen über alle
+  Geräte. Darunter pro Handy eine Karte mit den zwei wichtigsten offenen Befunden, rechts „Was ist neu“ (neue und
+  entfernte Apps, neue Befunde über alle Geräte), „Erinnerungen“ (lange nicht gescannt, wieder offene Befunde)
+  und die drei Schritte für ein neues Handy.
+
 - **Befunde aufklappen:** Ein Klick auf einen Befund zeigt Details, Hinweise zum Beheben und das Einordnen.
   Mit „Alle auf“ und „Alle zu“ geht es für alle auf einmal.
 - **Filtern und suchen:** Die Schwere-Chips blenden Stufen ein und aus. Die Suche findet App-Namen
