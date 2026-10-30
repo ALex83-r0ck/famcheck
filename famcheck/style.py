@@ -1,5 +1,6 @@
 """Shared look of dashboard and scan report: colors (light/dark), severity names, small HTML parts."""
 
+from datetime import datetime, tzinfo
 from html import escape
 
 SEV_KEY = {"KRITISCH": "crit", "HOCH": "high", "MITTEL": "mid", "NIEDRIG": "low"}
@@ -118,7 +119,31 @@ th{font-size:.74rem;letter-spacing:.06em;text-transform:uppercase;color:var(--mu
 .ticks span{position:absolute;transform:translateX(-50%)}
 .legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.8rem;color:var(--muted);margin-top:14px}
 .legend span{display:flex;align-items:center;gap:6px}
+.apps-bar{flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 10px}
+.apps-bar button,.apps-bar select{font:inherit;font-size:.8rem;padding:4px 10px;border:1px solid var(--line);
+border-radius:999px;background:var(--sunken);color:var(--fg);cursor:pointer}
+.apps-bar button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+.apps-bar :focus-visible{outline:3px solid var(--accent);outline-offset:1px}
+tr.app-new td{background:var(--high-soft)}
+tr[hidden]{display:none}
+.applinks{font-size:.78rem;margin-left:6px;white-space:nowrap}
+td.num{white-space:nowrap}
+.rename{margin-top:6px}
+.rename summary{cursor:pointer;color:var(--accent);font-size:.82rem;width:max-content}
+.rename form{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.rename input{font:inherit;font-size:.9rem;padding:5px 8px;border:1px solid var(--line);border-radius:6px;
+background:var(--surface);color:var(--fg);flex:1 1 200px;min-width:0;max-width:320px}
+.rename button{font:inherit;font-size:.85rem;padding:5px 12px;border:1px solid var(--accent);border-radius:6px;
+background:var(--accent);color:var(--surface);cursor:pointer}
 """
+
+
+def local_time(iso: str, tz: tzinfo | None = None) -> str:
+    """'30.10.2026 13:20' in the PC's time zone. The data files keep UTC (no jumps at daylight saving)."""
+    try:
+        return datetime.fromisoformat(iso).astimezone(tz).strftime("%d.%m.%Y %H:%M")
+    except (TypeError, ValueError):
+        return iso
 
 
 def worst(findings: list[dict]) -> str:

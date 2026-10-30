@@ -8,6 +8,7 @@ malicious app controls its own package name.
 import hashlib
 import hmac
 import json
+import os
 import secrets
 import socket
 import sys
@@ -20,14 +21,37 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote
 
 from . import decisions, fix, iocs
-from .report import ROLE_LABELS, compute_diff, render_html
-from .style import CSS, HEADLINE, ICON, SEV_KEY, SEV_LABEL
+from .report import ROLE_LABELS, compute_diff, render_html, source_label
+from .style import CSS, HEADLINE, ICON, SEV_KEY, SEV_LABEL, local_time
 from .style import chips as _chips
 from .style import uploads_html as _uploads_html
 from .style import worst as _worst
 
 STALE_DAYS = 45  # a device not scanned for this long gets a hint
+MAX_NAME = 40
 
+
+def _names_path(cases_root: Path) -> Path:
+    return cases_root / "devices.json"
+
+
+def load_names(cases_root: Path) -> dict[str, str]:
+    """Names the user gave the devices in the dashboard (serial -> name). Scans keep their original label."""
+    path = _names_path(cases_root)
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+
+
+def save_name(cases_root: Path, serial: str, name: str) -> None:
+    """Empty name = back to the label from the scan."""
+    name = "".join(c for c in name if c.isprintable()).strip()[:MAX_NAME]
+    names = load_names(cases_root)
+    if name:
+        names[serial] = name
+    else:
+        names.pop(serial, None)
+    tmp = _names_path(cases_root).with_suffix(".tmp")
+    tmp.write_text(json.dumps(names, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, _names_path(cases_root))
 
 
 def load_cases(cases_root: Path) -> dict[str, list[dict]]:
@@ -48,8 +72,11 @@ def load_cases(cases_root: Path) -> dict[str, list[dict]]:
             {"dir": case_dir, "meta": content["meta"], "findings": content["findings"],
              "data": json.loads(d.read_text(encoding="utf-8"))})
     all_decisions = decisions.load(cases_root)
+    names = load_names(cases_root)
     for serial, scans in devices.items():
         scans.sort(key=lambda s: s["meta"]["started"])
+        for s in scans:  # one name per device, even if scans were labelled differently
+            s["name"] = names.get(serial) or scans[-1]["meta"]["label"]
         for prev, cur in zip([None] + scans, scans):
             cur["diff"] = compute_diff(prev["data"], cur["data"]) if prev else None
             cur["triaged"] = decisions.annotate(cur["findings"], all_decisions.get(serial, {}), cur["meta"]["started"])
@@ -102,7 +129,7 @@ def _change_line(diff: dict | None) -> str:
 def _sorted_devices(devices: dict[str, list[dict]]) -> list[tuple[str, list[dict]]]:
     order = list(HEADLINE)
     return sorted(devices.items(), key=lambda kv: (order.index(_worst(kv[1][-1]["counting"])),
-                                                   kv[1][-1]["meta"]["label"].lower()))
+                                                   kv[1][-1]["name"].lower()))
 
 
 def _page(title: str, active: str, body: str, devices: dict) -> str:
@@ -142,7 +169,7 @@ def render_overview(devices: dict[str, list[dict]], now: datetime | None = None)
                  f"<span class='stale'>Lange nicht gescannt</span>") or ""
         cards.append(
             f"<article class='card'>"
-            f"<div><h3><a href='/device/{escape(serial)}'>{escape(last['meta']['label'])}</a></h3>"
+            f"<div><h3><a href='/device/{escape(serial)}'>{escape(last['name'])}</a></h3>"
             f"<div class='muted small'>{escape(model)}</div></div>"
             f"<div class='state s-{w}'><span class='big d-{w}'>{ICON[w]}</span>{HEADLINE[w]}</div>"
             f"<div>{_chips(last['counting'])}</div>{_triage_line(last['triaged'])}"
@@ -181,13 +208,13 @@ def render_history(devices: dict[str, list[dict]], now: datetime | None = None) 
             added, perms, _ = _change_count(s["diff"])
             tip = " ".join(x for x in (f"+{added} App{'s' if added > 1 else ''}" if added else "",
                                        f"+{perms} Rechte/Konten" if perms else "") if x)
-            title = f"{s['meta']['started'][:10]}: {HEADLINE[w]}"
+            title = f"{local_time(s['meta']['started'])}: {HEADLINE[w]}"
             marks.append(f"<a class='mark' style='left:{pos(_started(s))}%' href='/report/{escape(s['dir'].name)}' "
                          f"title='{escape(title)}' aria-label='{escape(title)}'><span class='dot d-{w}'></span>"
                          + (f"<span class='tip'>{escape(tip)}</span>" if tip else "") + "</a>")
         w = _worst(scans[-1]["findings"])
         rows.append(f"<div class='tl-row'><div class='lbl'><a href='/device/{escape(serial)}'>"
-                    f"{escape(scans[-1]['meta']['label'])}</a><small>{HEADLINE[w]}</small></div>"
+                    f"{escape(scans[-1]['name'])}</a><small>{HEADLINE[w]}</small></div>"
                     f"<div class='track'>{''.join(marks)}</div></div>")
     legend = "".join(f"<span><i class='dot d-{k}'></i>{SEV_LABEL[k]}</span>" for k in HEADLINE)
     body = (f"<div class='panel'><div class='scroll'><div class='tl-inner'>"
@@ -198,9 +225,12 @@ def render_history(devices: dict[str, list[dict]], now: datetime | None = None) 
 
 
 def _diff_html(diff: dict) -> str:
-    rows = [f"<div class='change'><span class='op op-add'>+</span><span class='mono'>{escape(p)}</span>"
-            f"<span class='muted'>neu installiert über {escape(i or 'unbekannt (APK/ADB)')}</span></div>"
-            for p, i in diff["added"].items()]
+    rows = []
+    for p, i in diff["added"].items():
+        source, foreign = source_label(i)
+        warn = "<span class='chip s-mid'>fremde Quelle</span> " if foreign else ""
+        rows.append(f"<div class='change'><span class='op op-add'>+</span><span class='mono'>{escape(p)}</span>"
+                    f"<span class='muted'>{warn}neu installiert über {escape(source)}</span></div>")
     rows += [f"<div class='change'><span class='op op-perm'>!</span><span class='mono'>{escape(p)}</span>"
              f"<span class='muted'>neue heikle Rechte: {escape(', '.join(g))}</span></div>"
              for p, g in diff["new_permissions"].items()]
@@ -239,7 +269,7 @@ def _decision_html(f: dict) -> str:
     d, state = f.get("decision"), f.get("decision_state")
     if not d:
         return ""
-    when = d["at"][:10]
+    when = local_time(d["at"])[:10]
     note = f": „{escape(d['note'])}“" if d.get("note") else ""
     label = decisions.STATUSES[d["status"]]
     if state == "changed":
@@ -314,6 +344,17 @@ def _fix_hint(serial: str, f: dict, all_findings: list[dict]) -> str:
     return ""
 
 
+def _rename_form(serial: str, name: str, token: str) -> str:
+    if not token:
+        return ""
+    return (f"<details class='rename'><summary>Umbenennen</summary>"
+            f"<form method='post' action='/rename'><input type='hidden' name='token' value='{escape(token)}'>"
+            f"<input type='hidden' name='serial' value='{escape(serial)}'>"
+            f"<input type='text' name='name' maxlength='{MAX_NAME}' value='{escape(name)}' aria-label='Neuer Name'>"
+            f"<button>Speichern</button></form><div class='muted small'>Gilt für alle Scans dieses Geräts. "
+            f"Leer lassen = Name aus dem Scan.</div></details>")
+
+
 def render_device(serial: str, scans: list[dict], devices: dict, now: datetime | None = None,
                   token: str = "") -> str:
     now = now or datetime.now(timezone.utc)
@@ -332,18 +373,19 @@ def render_device(serial: str, scans: list[dict], devices: dict, now: datetime |
                      + "".join(_finding_html(serial, f, token, last["findings"], rank[id(f)]) for f in hidden)
                      + "</div></details>")
     history = "".join(
-        f"<tr><td class='num'>{escape(s['meta']['started'][:16].replace('T', ' '))} UTC</td>"
+        f"<tr><td class='num'>{escape(local_time(s['meta']['started']))}</td>"
         f"<td>{_chips(s['findings'])}</td><td class='small'>{_change_line(s['diff'])}</td>"
         f"<td><a href='/report/{escape(s['dir'].name)}'>Bericht</a></td></tr>"
         for s in reversed(scans))
     diff = (_diff_html(last["diff"]) if last["diff"] is not None
             else "<p class='muted' style='margin:0'>Erst ein Scan vorhanden, noch kein Vergleich möglich.</p>")
     body = (f"<div class='panel'><p style='margin:0 0 8px'><a href='/'>← Übersicht</a></p>"
-            f"<h2 style='font-size:1.3rem;margin:0'>{escape(last['meta']['label'])}</h2>"
+            f"<h2 style='font-size:1.3rem;margin:0'>{escape(last['name'])}</h2>"
             f"<div class='muted small'>{escape(props.get('ro.product.manufacturer', ''))} "
             f"{escape(props.get('ro.product.model', ''))} · Android {escape(props.get('ro.build.version.release', '?'))} · "
             f"Patch <span class='num'>{escape(props.get('ro.build.version.security_patch', '?'))}</span> · "
             f"<span class='mono'>{escape(serial)}</span> · Letzter Scan {_ago(_started(last), now)}</div>"
+            f"{_rename_form(serial, last['name'], token)}"
             f"<div class='state s-{w}' style='margin-top:12px'><span class='big d-{w}'>{ICON[w]}</span>{HEADLINE[w]}</div></div>"
             f"<div class='panel'><h2>Seit letztem Scan</h2>{diff}</div>"
             f"<div class='panel'><h2>Befunde</h2><p class='muted small' style='margin:0 0 6px'>Einordnen ändert nichts "
@@ -353,7 +395,7 @@ def render_device(serial: str, scans: list[dict], devices: dict, now: datetime |
             f"<div class='panel'><h2>Alle Scans</h2><p class='muted small' style='margin:0 0 6px'>Ohne Einordnung, "
             f"so wie gescannt.</p><div class='scroll'><table><tr><th>Zeit</th><th>Befunde</th>"
             f"<th>Änderungen</th><th></th></tr>{history}</table></div></div>")
-    return _page(f"FamCheck – {last['meta']['label']}", "", body, devices)
+    return _page(f"FamCheck – {last['name']}", "", body, devices)
 
 
 COOKIE = "famcheck_session"
@@ -368,9 +410,10 @@ def data_version(cases_root: Path) -> str:
             f = d / "findings.json"
             if f.is_file():
                 h.update(f"{d.name}:{f.stat().st_mtime_ns}\n".encode())
-        dec = cases_root / "decisions.json"
-        if dec.is_file():
-            h.update(f"decisions:{dec.stat().st_mtime_ns}".encode())
+        for extra in ("decisions.json", "devices.json"):
+            f = cases_root / extra
+            if f.is_file():
+                h.update(f"{extra}:{f.stat().st_mtime_ns}".encode())
     return h.hexdigest()[:16]
 
 LOCKED_PAGE = """<!doctype html><html lang="de"><head><meta charset="utf-8">
@@ -404,7 +447,9 @@ def make_handler(cases_root: Path, port: int):
                              "form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Referrer-Policy", "no-referrer")
+            # same-origin: nothing ever goes to foreign sites (VirusTotal/Play links), but plain forms still send
+            # their real Origin; with no-referrer browsers send "Origin: null" and the origin check refused them
+            self.send_header("Referrer-Policy", "same-origin")
             self.end_headers()
             self.wfile.write(data)
 
@@ -469,7 +514,8 @@ def make_handler(cases_root: Path, port: int):
                 return self._send(403, "Fremde Herkunft", "text/plain")
             if not self._logged_in():
                 return self._send(401, LOCKED_PAGE.replace("%CSS%", CSS))
-            if unquote(self.path.split("?")[0]) != "/decide":
+            path = unquote(self.path.split("?")[0])
+            if path not in ("/decide", "/rename"):
                 return self._send(404, "Nicht gefunden", "text/plain")
             try:
                 length = int(self.headers.get("Content-Length") or 0)
@@ -484,16 +530,22 @@ def make_handler(cases_root: Path, port: int):
                 return self._send(403, "Ungültiges Formular. Seite neu laden und nochmal versuchen.", "text/plain")
 
             devices = load_cases(cases_root)
-            serial, key, status = form.get("serial", ""), form.get("key", ""), form.get("status", "")
+            serial = form.get("serial", "")
             if serial not in devices:
                 return self._send(400, "Unbekanntes Gerät", "text/plain")
-            finding = next((f for f in devices[serial][-1]["findings"] if decisions.finding_key(f) == key), None)
-            if finding is None or (status not in decisions.STATUSES and status != "reset"):
-                return self._send(400, "Unbekannter Befund oder Status", "text/plain")
-            decisions.record(cases_root, serial, finding, status, form.get("note", ""))
+            anchor = ""
+            if path == "/rename":
+                save_name(cases_root, serial, form.get("name", ""))
+            else:
+                key, status = form.get("key", ""), form.get("status", "")
+                finding = next((f for f in devices[serial][-1]["findings"] if decisions.finding_key(f) == key), None)
+                if finding is None or (status not in decisions.STATUSES and status != "reset"):
+                    return self._send(400, "Unbekannter Befund oder Status", "text/plain")
+                decisions.record(cases_root, serial, finding, status, form.get("note", ""))
+                anchor = "#" + _anchor(finding)
 
-            self.send_response(303)  # back to the finding, so a reload does not resend the form
-            self.send_header("Location", f"/device/{quote(serial)}#{_anchor(finding)}")
+            self.send_response(303)  # back to the page, so a reload does not resend the form
+            self.send_header("Location", f"/device/{quote(serial)}{anchor}")
             self.send_header("Content-Length", "0")
             self.end_headers()
 
